@@ -56,6 +56,7 @@
 #define GREY 0xC618
 #define PINK 0xFC18
 #define ORANGE 0xFC00
+#define BLACK 0x0000
 
 #define ABS(x) (((x) > 0) ? (x) : -(x))
 
@@ -117,19 +118,22 @@ void enable_A9_interrupts(void);
 void interval_timer_ISR(void);
 void pushbutton_ISR(void);
 
+/* Set up and manage pixel buffers */
+void set_pixel_buffers(void);
+void wait_for_vsync();
+
 /* Draw larger structures */
-void move_boxes();
-void draw();
-void draw_boxes();
-void clear_boxes();
 void init_boxes();
+void move_boxes();
 void update_old_boxes();
+void clear_boxes();
+void draw_box_lines();
 
 /* Draw simple shapes and lines */
-void draw_line(int x0, int y0, int x1, int y1, short int line_color);
 void plot_pixel(int x, int y, short int line_color);
+void draw_box(int x0, int y0, short int color, int length);
+void plot_line(int x0, int y0, int x1, int y1, short int line_color);
 void clear_screen();
-void wait_for_vsync();
 
 /* Helper functions */
 void swap (int *first, int *second);
@@ -152,18 +156,14 @@ int main(void)
     // initialize location and direction of rectangles
     init_boxes();
 
-    /* set front pixel buffer to start of FPGA On-chip memory */
-    *(pixel_ctrl_ptr + 1) = FPGA_ONCHIP_BASE; // first store the address in the 
-                                              // back buffer
-    /* now, swap the front/back buffers, to set the front buffer location */
-    wait_for_vsync();
-    /* initialize a pointer to the pixel buffer, used by drawing functions */
-    pixel_buffer_start = *pixel_ctrl_ptr;
-    clear_screen(); // pixel_buffer_start points to the pixel buffer
-    /* set back pixel buffer to start of SDRAM memory */
-    *(pixel_ctrl_ptr + 1) = SDRAM_BASE;
-    pixel_buffer_start = *(pixel_ctrl_ptr + 1); // we draw on the back buffer
-    clear_screen(); // pixel_buffer_start points to the pixel buffer
+    set_A9_IRQ_stack();      // initialize the stack pointer for IRQ mode
+    config_GIC();            // configure the general interrupt controller
+    config_interval_timer(); // configure interval timer to generate interrupts
+    config_KEYs();           // configure pushbutton KEYs to generate interrupts
+    
+    enable_A9_interrupts();  // enable interrupts
+
+    set_pixel_buffers();     // set up the pixel buffers
 
     while (1)
     {
@@ -172,21 +172,26 @@ int main(void)
         if (num_boxes > SW_MAX)
             num_boxes = SW_MAX;
 
-        // initialize any new boxes
-        init_boxes();
-    
-        // erase any boxes and lines that were drawn in the last iteration
-        clear_boxes();
-
-        // code for updating the locations of boxes
-        update_old_boxes();
+        init_boxes();       // initialize any new boxes
+        clear_boxes();      // erase any boxes and lines in the last iteration
+        update_old_boxes(); // update the locations of boxes
         move_boxes();
-
-        // code for drawing the boxes and lines
-        draw();
+        draw_box_lines();             // draw the boxes and lines
 
         wait_for_vsync(); // swap front and back buffers on VGA vertical sync
         pixel_buffer_start = *(pixel_ctrl_ptr + 1); // new back buffer
+    }
+}
+
+
+/* Draw larger structures */
+void init_boxes (){
+    for (int i = num_curr_boxes; i < num_boxes; ++i) {
+        boxes[i].x = rand() % RESOLUTION_X;
+        boxes[i].y = rand() % RESOLUTION_Y;
+        boxes[i].x_dir = rand() % 2 * 2 - 1;
+        boxes[i].y_dir = rand() % 2 * 2 - 1;
+        boxes[i].color = (short int)(rand() % 0xFFFF);
     }
 }
 
@@ -211,80 +216,42 @@ void update_old_boxes (){
     num_old_boxes = num_curr_boxes;
 }
 
-void draw() {
+void clear_boxes() {
+    for (int i = 0; i < num_old_boxes; ++i) {
+        draw_box(old_boxes[i].x, old_boxes[i].y, BLACK, BOX_LEN);
+        plot_line(old_boxes[i].x, old_boxes[i].y, 
+                  old_boxes[(i+1)%num_old_boxes].x, old_boxes[(i+1)%num_old_boxes].y, BLACK);
+    }
+}
+
+void draw_box_lines() {
     for (int i = 0; i < num_curr_boxes; ++i) {
-        draw_box(boxes[i].x, boxes[i].y, boxes[i].color);
-        draw_line(boxes[i].x, boxes[i].y, 
+        draw_box(boxes[i].x, boxes[i].y, boxes[i].color, BOX_LEN);
+        plot_line(boxes[i].x, boxes[i].y, 
                   boxes[(i+1)%num_curr_boxes].x, boxes[(i+1)%num_curr_boxes].y, 
                   boxes[i].color);
     }
 }
 
-void clear_boxes() {
-    for (int i = 0; i < num_old_boxes; ++i) {
-        draw_box(old_boxes[i].x, old_boxes[i].y, 0x0000);
-        draw_line(old_boxes[i].x, old_boxes[i].y, 
-                  old_boxes[(i+1)%num_old_boxes].x, old_boxes[(i+1)%num_old_boxes].y, 0x0000);
-    }
-}
 
-void init_boxes (){
-    for (int i = num_curr_boxes; i < num_boxes; ++i) {
-        boxes[i].x = rand() % RESOLUTION_X;
-        boxes[i].y = rand() % RESOLUTION_Y;
-        boxes[i].x_dir = rand() % 2 * 2 - 1;
-        boxes[i].y_dir = rand() % 2 * 2 - 1;
-        boxes[i].color = (short int)(rand() % 0xFFFF);
-    }
-}
-
-void wait_for_vsync(){
-	volatile int * pixel_ctrl_ptr = (int *)0xFF203020; 	// pixel controller (DMA base)
-	register int status;
-	
-	// start the synchronization process
-	*pixel_ctrl_ptr = 1;				// writing to buffer register
-	status = *(pixel_ctrl_ptr + 3);		// read status register
-	while ((status & 0x01) != 0)		// checking if S bit is 0
-		status = *(pixel_ctrl_ptr + 3); // update read value of status register
-}
-
-void clear_screen()
-{
-    for (int x = 0; x < RESOLUTION_X; ++x) {
-        for (int y = 0; y < RESOLUTION_Y; ++y) {
-            *(short int *)(pixel_buffer_start + (y << 10) + (x << 1)) = 0x0000;
-        }
-    }
-}
-
-void swap (int *first, int *second) {
-    int temp = *first;
-    *first = *second;
-    *second = temp;
-}
-
+/* Draw simple shapes and lines */
 void plot_pixel(int x, int y, short int line_color)
 {
     *(short int *)(pixel_buffer_start + (y << 10) + (x << 1)) = line_color;
 }
 
-void draw_box(int x0, int y0, short int color)
+void draw_box(int x0, int y0, short int color, int length)
 {
-    for(int i = 0; i < BOX_LEN; ++i) {
-        for(int j = 0; j < BOX_LEN; ++j) {
+    for(int i = 0; i < length; ++i) {
+        for(int j = 0; j < length; ++j) {
             plot_pixel(x0 + i, y0 + j, color);
         }
     }
 }
 
-void draw_line(int x0, int y0, int x1, int y1, short int line_color)
+void plot_line(int x0, int y0, int x1, int y1, short int line_color)
 {
-    int is_steep;
-    if (ABS(y1 - y0) > ABS(x1 - x0))
-        is_steep = TRUE;
-    else
-        is_steep = FALSE;
+    int is_steep = (ABS(y1 - y0) > ABS(x1 - x0)) ? TRUE : FALSE;
 
     if (is_steep) {
         swap(&x0, &y0);
@@ -295,29 +262,77 @@ void draw_line(int x0, int y0, int x1, int y1, short int line_color)
         swap(&y0, &y1);
     }
     
-    int deltax = x1 - x0;
-    int deltay = ABS(y1 - y0);
-    int error = -(deltax / 2);
+    int delta_x = x1 - x0;
+    int delta_y = ABS(y1 - y0);
+    int error = -(delta_x / 2);
     int y = y0;
-
-    int y_step;
-
-    if (y0 < y1)
-        y_step = 1;
-    else
-        y_step = -1;
+    int y_step = (y0 < y1) ? 1 : -1;
 
     for (int x = x0; x < x1; ++x) {
         if (is_steep)
             plot_pixel(y, x, line_color);
         else
             plot_pixel(x, y, line_color);
-        error = error + deltay;
+        error = error + delta_y;
         if (error > 0) {
             y = y + y_step;
-            error = error - deltax;
+            error = error - delta_x;
         }
     }
+}
+
+void clear_screen()
+{
+    for (int x = 0; x < RESOLUTION_X; ++x) {
+        for (int y = 0; y < RESOLUTION_Y; ++y) {
+            *(short int *)(pixel_buffer_start + (y << 10) + (x << 1)) = BLACK;
+        }
+    }
+}
+
+
+/* Helper functions */
+
+// Swaps the first and second integers using a temporary variable
+void swap (int *first, int *second) {
+    int temp = *first;
+    *first = *second;
+    *second = temp;
+}
+
+
+/* Set up and manage pixel buffers for VGA drawing */
+void set_pixel_buffers(void)
+{
+    // Pixel buffer base address
+    volatile int * pixel_ctrl_ptr = (int *)PIXEL_BUF_CTRL_BASE;
+
+    /* Set front pixel buffer to start of FPGA On-chip memory */
+    *(pixel_ctrl_ptr + 1) = FPGA_ONCHIP_BASE; // first store the address in the 
+                                              // back buffer
+
+    /* Swap the front/back buffers, to set the front buffer location */
+    wait_for_vsync();
+
+    /* Initialize a pointer to the pixel buffer, used by drawing functions */
+    pixel_buffer_start = *pixel_ctrl_ptr;
+    clear_screen(); // pixel_buffer_start points to the pixel buffer
+
+    /* Set back pixel buffer to start of SDRAM memory */
+    *(pixel_ctrl_ptr + 1) = SDRAM_BASE;
+    pixel_buffer_start = *(pixel_ctrl_ptr + 1); // we draw on the back buffer
+    clear_screen(); // pixel_buffer_start points to the pixel buffer
+}
+
+void wait_for_vsync(){
+	volatile int * pixel_ctrl_ptr = (int *)PIXEL_BUF_CTRL_BASE; 	// pixel controller (DMA base)
+	register int status;
+	
+	// start the synchronization process
+	*pixel_ctrl_ptr = 1;				// writing to buffer register
+	status = *(pixel_ctrl_ptr + 3);		// read status register
+	while ((status & 0x01) != 0)		// checking if S bit is 0
+		status = *(pixel_ctrl_ptr + 3); // update read value of status register
 }
 
 
