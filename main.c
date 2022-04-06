@@ -1,5 +1,6 @@
 /* Address values in the DE1-SoC board */
 
+/* Memory */
 #define SDRAM_BASE            0xC0000000
 #define FPGA_ONCHIP_BASE      0xC8000000
 #define FPGA_CHAR_BASE        0xC9000000
@@ -28,7 +29,7 @@
 
 #define ABS(x) (((x) > 0) ? (x) : -(x))
 
-/* Screen size. */
+/* Screen size */
 #define RESOLUTION_X 320
 #define RESOLUTION_Y 240
 
@@ -40,9 +41,14 @@
 #define FALSE 0
 #define TRUE 1
 
+/* Include directives */
 #include <stdlib.h>
 #include <stdio.h>
 
+
+/*
+ * STRUCT DEFINITIONS
+ */
 typedef struct Box_Info {
     int x;                  // (x,y) positions
     int y;
@@ -51,6 +57,10 @@ typedef struct Box_Info {
     short int color;        // colour
 } Box_Info;
 
+
+/*
+ * GLOBAL VARIABLES
+ */
 Box_Info boxes[SW_MAX];
 Box_Info old_boxes[SW_MAX];
 
@@ -60,19 +70,38 @@ int num_old_boxes;
 
 volatile int pixel_buffer_start; // global variable
 
+
+/*
+ * FUNCTION DECLARATIONs
+ */
+/* Set up interrupts */
+void set_A9_IRQ_stack(void);
+void config_GIC(void);
+void config_interval_timer(void);
+void config_KEYs(void);
+void enable_A9_interrupts(void);
+
+/* Draw larger structures */
 void move_boxes();
 void draw();
 void draw_boxes();
 void clear_boxes();
 void init_boxes();
-void wait_for_vsync();
-void draw_line(int x0, int y0, int x1, int y1, short int line_color);
-void swap (int *first, int *second);
-void plot_pixel(int x, int y, short int line_color);
-void clear_screen();
 void update_old_boxes();
 
+/* Draw simple shapes and lines */
+void draw_line(int x0, int y0, int x1, int y1, short int line_color);
+void plot_pixel(int x, int y, short int line_color);
+void clear_screen();
+void wait_for_vsync();
 
+/* Helper functions */
+void swap (int *first, int *second);
+
+
+/*
+ * FUNCTION DEFINITIONS
+ */
 int main(void)
 {
     volatile int * pixel_ctrl_ptr = (int *)0xFF203020;
