@@ -4,6 +4,7 @@
 #define SDRAM_BASE            0xC0000000
 #define FPGA_ONCHIP_BASE      0xC8000000
 #define FPGA_CHAR_BASE        0xC9000000
+#define A9_ONCHIP_END         0xFFFFFFFF
 
 /* Cyclone V FPGA devices */
 #define LEDR_BASE             0xFF200000
@@ -14,6 +15,31 @@
 #define TIMER_BASE            0xFF202000
 #define PIXEL_BUF_CTRL_BASE   0xFF203020
 #define CHAR_BUF_CTRL_BASE    0xFF203030
+
+/* Interrupt controller (GIC) CPU interface(s) */
+#define MPCORE_GIC_CPUIF      0xFFFEC100    // PERIPH_BASE + 0x100
+#define ICCICR                0x00          // offset to CPU interface control reg
+#define ICCPMR                0x04          // offset to interrupt priority mask reg
+#define ICCIAR                0x0C          // offset to interrupt acknowledge reg
+#define ICCEOIR               0x10          // offset to end of interrupt reg
+
+/* Interrupt controller (GIC) distributor interface(s) */
+#define MPCORE_GIC_DIST       0xFFFED000    // PERIPH_BASE + 0x1000
+#define ICDDCR                0x00          // offset to distributor control reg
+
+/* Operating modes and interrupt enable bits */
+#define IRQ_MODE              0b10010
+#define SVC_MODE              0b10011
+#define INT_ENABLE            0b01000000
+#define INT_DISABLE           0b11000000
+
+#define EDGE_TRIGGERED        0x1
+#define LEVEL_SENSITIVE       0x0
+#define CPU0                  0x01          // bit-mask; bit 0 represents cpu0
+#define ENABLE                0x1
+
+/* Load value for A9 Private Timer */
+#define TIMER_LOAD            50000000       // 1/(100 MHz) x 5x10^7 = 0.5 sec
 
 /* VGA colors */
 #define WHITE 0xFFFF
@@ -282,4 +308,78 @@ void draw_line(int x0, int y0, int x1, int y1, short int line_color)
             error = error - deltax;
         }
     }
+}
+
+/* Set up interrupts, 
+ * from the Intel® FPGA University Program DE1-SoC Computer Manual */
+
+// Initialize the banked stack pointer register for IRQ mode
+void set_A9_IRQ_stack(void)
+{
+    int stack, mode;
+    stack = A9_ONCHIP_END - 7; // top of A9 onchip memory, aligned to 8 bytes
+    /* change processor to IRQ mode with interrupts disabled */
+    mode = INT_DISABLE | IRQ_MODE;
+    asm("msr cpsr, %[ps]" : : [ps] "r"(mode));
+    /* set banked stack pointer */
+    asm("mov sp, %[ps]" : : [ps] "r"(stack));
+
+    /* go back to SVC mode before executing subroutine return */
+    mode = INT_DISABLE | SVC_MODE;
+    asm("msr cpsr, %[ps]" : : [ps] "r"(mode));
+}
+
+// Configure the Generic Interrupt Controller (GIC)
+void config_GIC(void)
+{
+    int address; // used to calculate register addresses
+
+    /* configure the FPGA interval timer and KEYs interrupts */
+    *((int *)0xFFFED848) = 0x00000101;
+    *((int *)0xFFFED108) = 0x00000300;
+
+    // Set Interrupt Priority Mask Register (ICCPMR) and
+    // Enable interrupts of all priorities
+    address = MPCORE_GIC_CPUIF + ICCPMR;
+    *((int *)address) = 0xFFFF;
+
+    // Set CPU Interface Control Register (ICCICR)
+    // Enable signaling of interrupts
+    address = MPCORE_GIC_CPUIF + ICCICR;
+    *((int *)address) = ENABLE;
+
+    // Configure the Distributor Control Register (ICDDCR) to send pending
+    // interrupts to CPUs
+    address = MPCORE_GIC_DIST + ICDDCR;
+    *((int *)address) = ENABLE;
+}
+
+// Setup the interval timer interrupts in the FPGA
+void config_interval_timer(void)
+{
+    // interal timer base address
+    volatile int * interval_timer_ptr = (int *)TIMER_BASE;
+
+    /* set the interval timer period */
+    int counter = TIMER_LOAD; // 1/(100 MHz) x 5x10^6 = 50 msec
+    *(interval_timer_ptr + 2) = (counter & 0xFFFF);
+    *(interval_timer_ptr + 3) = (counter >> 16) & 0xFFFF;
+
+    /* start interval timer, enable its interrupts */
+    // STOP = 0, START = 1, CONT = 1, ITO = 1
+    *(interval_timer_ptr + 1) = 0x7;
+}
+
+// Setup the KEY interrupts in the FPGA
+void config_KEYs(void)
+{
+    volatile int * KEY_ptr = (int *)KEY_BASE; // pushbutton KEY address
+    *(KEY_ptr + 2) = 0xF; // enable interrupts for all KEYs
+}
+
+// Turn on interrupts in the ARM processor
+void enable_A9_interrupts(void)
+{
+    int status = SVC_MODE | INT_ENABLE;
+    asm("msr cpsr, %[ps]" : : [ps] "r"(status));
 }
