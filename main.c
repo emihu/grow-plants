@@ -38,6 +38,10 @@
 #define CPU0                  0x01          // bit-mask; bit 0 represents cpu0
 #define ENABLE                0x1
 
+/* IRQ interrupt IDs */
+#define INTERVAL_TIMER_IRQ    72
+#define KEYS_IRQ              73
+
 /* Load value for A9 Private Timer */
 #define TIMER_LOAD            50000000       // 1/(100 MHz) x 5x10^7 = 0.5 sec
 
@@ -87,6 +91,8 @@ typedef struct Box_Info {
 /*
  * GLOBAL VARIABLES
  */
+double gTime;
+
 Box_Info boxes[SW_MAX];
 Box_Info old_boxes[SW_MAX];
 
@@ -106,6 +112,10 @@ void config_GIC(void);
 void config_interval_timer(void);
 void config_KEYs(void);
 void enable_A9_interrupts(void);
+
+/* Interrupt service routines */
+void interval_timer_ISR(void);
+void pushbutton_ISR(void);
 
 /* Draw larger structures */
 void move_boxes();
@@ -130,8 +140,8 @@ void swap (int *first, int *second);
  */
 int main(void)
 {
-    volatile int * pixel_ctrl_ptr = (int *)0xFF203020;
-    volatile int * SW_ptr = (int *)0xFF200040;
+    volatile int * pixel_ctrl_ptr = (int *)PIXEL_BUF_CTRL_BASE;
+    volatile int * SW_ptr = (int *)SW_BASE;
 
     // initialize number of boxes
     num_curr_boxes = 0;
@@ -143,15 +153,15 @@ int main(void)
     init_boxes();
 
     /* set front pixel buffer to start of FPGA On-chip memory */
-    *(pixel_ctrl_ptr + 1) = 0xC8000000; // first store the address in the 
-                                        // back buffer
+    *(pixel_ctrl_ptr + 1) = FPGA_ONCHIP_BASE; // first store the address in the 
+                                              // back buffer
     /* now, swap the front/back buffers, to set the front buffer location */
     wait_for_vsync();
     /* initialize a pointer to the pixel buffer, used by drawing functions */
     pixel_buffer_start = *pixel_ctrl_ptr;
     clear_screen(); // pixel_buffer_start points to the pixel buffer
     /* set back pixel buffer to start of SDRAM memory */
-    *(pixel_ctrl_ptr + 1) = 0xC0000000;
+    *(pixel_ctrl_ptr + 1) = SDRAM_BASE;
     pixel_buffer_start = *(pixel_ctrl_ptr + 1); // we draw on the back buffer
     clear_screen(); // pixel_buffer_start points to the pixel buffer
 
@@ -310,6 +320,32 @@ void draw_line(int x0, int y0, int x1, int y1, short int line_color)
     }
 }
 
+
+/* Interrupt service routines */
+void interval_timer_ISR(void)
+{
+    // interal timer base address
+    volatile int * interval_timer_ptr = (int *)TIMER_BASE;
+    *(interval_timer_ptr) = 0; // clear the interrupt
+
+    ++gTime;
+}
+
+void pushbutton_ISR(void) 
+{
+    // KEY base address
+    volatile int * KEY_ptr = (int *) KEY_BASE;
+    
+    int press = *(KEY_ptr + 3); // read the pushbutton interrupt register
+    *(KEY_ptr + 3) = press; // clear the interrupt
+
+    if (press & 0x1); // KEY0
+    else if (press & 0x2); // KEY1
+    else if (press & 0x4); // KEY2
+    else; // press & 0x8, which is KEY3
+}
+
+
 /* Set up interrupts, 
  * from the Intel® FPGA University Program DE1-SoC Computer Manual */
 
@@ -382,4 +418,59 @@ void enable_A9_interrupts(void)
 {
     int status = SVC_MODE | INT_ENABLE;
     asm("msr cpsr, %[ps]" : : [ps] "r"(status));
+}
+
+
+/* Exception handlers, 
+ * from the Intel® FPGA University Program DE1-SoC Computer Manual */
+
+// Define the IRQ exception handler
+void __attribute__((interrupt)) __cs3_isr_irq(void)
+{
+    // Read the ICCIAR from the processor interface
+    int address = MPCORE_GIC_CPUIF + ICCIAR;
+    int interrupt_ID = *((int *)address);
+
+    // Check which device is calling the interrupt
+    if (interrupt_ID == INTERVAL_TIMER_IRQ)
+        interval_timer_ISR();
+    else if (interrupt_ID == KEYS_IRQ)
+        pushbutton_ISR();
+    else
+        while (1); // if unexpected, then stay here
+    
+    // Write to the End of Interrupt Register (ICCEOIR)
+    address = MPCORE_GIC_CPUIF + ICCEOIR;
+    *((int *)address) = interrupt_ID;
+}
+
+// Define the remaining exception handlers
+void __attribute__((interrupt)) __cs3_reset(void)
+{
+    while (1);
+}
+
+void __attribute__((interrupt)) __cs3_isr_undef(void)
+{
+    while (1);
+}
+
+void __attribute__((interrupt)) __cs3_isr_swi(void)
+{
+    while (1);
+}
+
+void __attribute__((interrupt)) __cs3_isr_pabort(void)
+{
+    while (1);
+}
+
+void __attribute__((interrupt)) __cs3_isr_dabort(void)
+{
+    while (1);
+}
+
+void __attribute__((interrupt)) __cs3_isr_fiq(void)
+{
+    while (1);
 }
