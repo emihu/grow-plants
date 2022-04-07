@@ -133,6 +133,7 @@ void draw_box_lines();
 void plot_pixel(int x, int y, short int line_color);
 void draw_box(int x0, int y0, short int color, int length);
 void plot_line(int x0, int y0, int x1, int y1, short int line_color);
+void plot_ellipse(int x0, int y0, int r1, int r2, short int color);
 void clear_screen();
 
 /* Helper functions */
@@ -278,6 +279,45 @@ void plot_line(int x0, int y0, int x1, int y1, short int line_color)
             y = y + y_step;
             error = error - delta_x;
         }
+    }
+}
+
+void plot_ellipse(int x0, int y0, int r1, int r2, short int color) 
+{
+    long x = -r1, y = 0;                      /* II. quadrant from bottom left to top right */
+    long e2 = r2, dx = (1 + 2 * x) * e2 * e2; /* error increment */
+    long dy = x * x, err = dx + dy;          /* error of 1.step */
+
+    do
+    {
+        plot_pixel(x0 - x, y0 + y, color); /* I. Quadrant */
+        plot_pixel(x0 + x, y0 + y, color); /* II. Quadrant */
+        plot_pixel(x0 + x, y0 - y, color); /* III. Quadrant */
+        plot_pixel(x0 - x, y0 - y, color); /* IV. Quadrant */
+
+        // add loops to fill in the ellipse
+
+        e2 = 2 * err;
+
+        // x step
+        if (e2 >= dx)
+        {
+            x++;
+            err += dx += 2 * (long)r2 * r2;
+        } 
+
+        // y step
+        if (e2 <= dy)
+        {
+            y++;
+            err += dy += 2 * (long)r1 * r1;
+        }
+    } while (x <= 0);
+
+    while (y++ < r2)
+    {
+        plot_pixel(x0, y0 + y, color); /* -> finish tip of ellipse */
+        plot_pixel(x0, y0 - y, color);
     }
 }
 
