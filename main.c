@@ -143,6 +143,90 @@ void clear_screen();
 /* Helper functions */
 void swap (int *first, int *second);
 
+#define SCALE_FACTOR 80
+#define SPEED_SCALE 1
+
+typedef struct Rand_Box_Info {
+    double x;               // (x,y) positions
+    double y;
+    double x_dir;           // directions, either -1 or 1
+    double y_dir;
+    short int color;        // colour
+    int reverse_x;
+    int reverse_y;
+} Rand_Box_Info;
+
+typedef struct D_Point {
+    double x;               // (x,y) positions
+    double y;
+} D_Point;
+
+Rand_Box_Info rand_box;
+Rand_Box_Info old_rand_box;
+D_Point initial_point;
+
+D_Point vector_field (double x, double y, double time) {
+    D_Point point;
+    point.x = sin((sin(time/SCALE_FACTOR/4)*x + sin(time/SCALE_FACTOR)*y)/SCALE_FACTOR);
+    point.y = -cos((cos(time/SCALE_FACTOR)*x + cos(time/SCALE_FACTOR/4)*y)/SCALE_FACTOR);
+    return point;
+}
+void init_rand_point () {
+    rand_box.x = rand() % RESOLUTION_X;
+    rand_box.y = rand() % RESOLUTION_Y;
+    D_Point dir = vector_field(rand_box.x, rand_box.y, gTime);
+    rand_box.x_dir = dir.x;
+    rand_box.y_dir = dir.y;
+    rand_box.color = (short int)(rand() % 0xFFFF);
+    rand_box.reverse_x = 1;
+    rand_box.reverse_y = 1;
+
+    old_rand_box.x = rand_box.x;
+    old_rand_box.y = rand_box.y;
+    old_rand_box.x_dir = 0;
+    old_rand_box.y_dir = 0;
+    old_rand_box.color = BLACK;
+    old_rand_box.reverse_x = 0;
+    old_rand_box.reverse_y = 0;
+
+    initial_point.x = rand_box.x;
+    initial_point.y = rand_box.y;
+}
+void draw_rand_point () {
+    // clear box
+    draw_box((int)old_rand_box.x, (int)old_rand_box.y, 
+             old_rand_box.color, 5);
+    plot_quad_bezier((int)initial_point.x, (int)initial_point.y, 
+                     (int)initial_point.x, (int)old_rand_box.y,
+                     (int)old_rand_box.x, (int)old_rand_box.y,
+                     old_rand_box.color);
+
+    // update old box
+    old_rand_box.x = rand_box.x;
+    old_rand_box.y = rand_box.y;
+    
+    // move box
+    if (rand_box.x <= 0 || rand_box.x >= RESOLUTION_X)
+        rand_box.reverse_x *= -1;
+    if (rand_box.y <= 0 || rand_box.y >= RESOLUTION_Y)
+        rand_box.reverse_y *= -1; 
+    rand_box.x += SPEED_SCALE * rand_box.x_dir * rand_box.reverse_x;
+    rand_box.y += SPEED_SCALE * rand_box.y_dir * rand_box.reverse_y;
+
+    if (rand_box.x < 0) rand_box.x = 0;
+    if (rand_box.y < 0) rand_box.y = 0;
+
+    // change direction
+    D_Point dir = vector_field(rand_box.x, rand_box.y, gTime);
+    rand_box.x_dir = dir.x;
+    rand_box.y_dir = dir.y;
+
+    draw_box((int)rand_box.x, (int)rand_box.y, rand_box.color, 5);
+    plot_quad_bezier((int)initial_point.x, (int)initial_point.y, 
+                     (int)initial_point.x, (int)rand_box.y,
+                     (int)rand_box.x, (int)rand_box.y,
+                     rand_box.color);
+}
 
 /*
  * FUNCTION DEFINITIONS
@@ -170,6 +254,8 @@ int main(void)
 
     set_pixel_buffers();     // set up the pixel buffers
 
+    init_rand_point ();
+
     while (1)
     {
         // set new number of boxes
@@ -182,6 +268,8 @@ int main(void)
         update_old_boxes(); // update the locations of boxes
         move_boxes();
         draw_box_lines();             // draw the boxes and lines
+
+        draw_rand_point ();
 
         wait_for_vsync(); // swap front and back buffers on VGA vertical sync
         pixel_buffer_start = *(pixel_ctrl_ptr + 1); // new back buffer
