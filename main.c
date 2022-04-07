@@ -384,12 +384,13 @@ void plot_ellipse(int x0, int y0, int r1, int r2, short int color)
 
     do
     {
-        plot_pixel(x0 - x, y0 + y, color); /* I. Quadrant */
-        plot_pixel(x0 + x, y0 + y, color); /* II. Quadrant */
-        plot_pixel(x0 + x, y0 - y, color); /* III. Quadrant */
-        plot_pixel(x0 - x, y0 - y, color); /* IV. Quadrant */
-
-        // add loops to fill in the ellipse
+        // loop to fill in the ellipse
+        for (int counter = 0; counter <= abs(x); counter++) {
+            plot_pixel(x0 - counter, y0 + y, color); // Quadrant 1
+            plot_pixel(x0 + counter, y0 + y, color); // Quadrant 2
+            plot_pixel(x0 + counter, y0 - y, color); // Quadrant 3
+            plot_pixel(x0 - counter, y0 - y, color); // Quadrant 4
+        }
 
         e2 = 2 * err;
 
