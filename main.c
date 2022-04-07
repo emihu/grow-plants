@@ -135,12 +135,9 @@ void draw_box_lines();
 void plot_pixel(int x, int y, short int line_color);
 void draw_box(int x0, int y0, short int color, int length);
 void plot_line(int x0, int y0, int x1, int y1, short int line_color);
-<<<<<<< HEAD
 void plot_ellipse(int x0, int y0, int r1, int r2, short int color);
-=======
 void plot_quad_bezier_seg(int x0, int y0, int x1, int y1, int x2, int y2, short int line_color);
 void plot_quad_bezier(int x0, int y0, int x1, int y1, int x2, int y2, short int line_color);
->>>>>>> 84f55b1 (Define functions for drawing quadratic Bezier curves)
 void clear_screen();
 
 /* Helper functions */
@@ -290,7 +287,7 @@ void plot_line(int x0, int y0, int x1, int y1, short int line_color)
     }
 }
 
-<<<<<<< HEAD
+// ellipse using algorithm from https://zingl.github.io/Bresenham.pdf
 void plot_ellipse(int x0, int y0, int r1, int r2, short int color) 
 {
     long x = -r1, y = 0;                      /* II. quadrant from bottom left to top right */
@@ -328,7 +325,8 @@ void plot_ellipse(int x0, int y0, int r1, int r2, short int color)
         plot_pixel(x0, y0 + y, color); /* -> finish tip of ellipse */
         plot_pixel(x0, y0 - y, color);
     }
-=======
+}
+
 // quadratic Bezier curve (for a limited quadratic Bezier segment)
 // drawing using algorithm from https://zingl.github.io/Bresenham.pdf
 void plot_quad_bezier_seg(int x0, int y0, int x1, int y1, int x2, int y2, short int line_color)
@@ -416,7 +414,6 @@ void plot_quad_bezier(int x0, int y0, int x1, int y1, int x2, int y2, short int 
         y0 = y; y1 = y; // P1 = P7
     }
     plot_quad_bezier_seg(x0, y0, x1, y1, x2, y2, line_color); // remaining part
->>>>>>> 84f55b1 (Define functions for drawing quadratic Bezier curves)
 }
 
 void clear_screen()
