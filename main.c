@@ -130,6 +130,7 @@ void move_boxes();
 void update_old_boxes();
 void clear_boxes();
 void draw_box_lines();
+void draw_flower(int x, int y, short int color);
 
 /* Draw simple shapes and lines */
 void plot_pixel(int x, int y, short int line_color);
@@ -326,6 +327,16 @@ void draw_box_lines() {
     }
 }
 
+void draw_flower(int x, int y, short int color) {
+    // draw petals
+    plot_ellipse(x + 4, y + 4, 4, 4, YELLOW);
+    plot_ellipse(x - 4, y + 4, 4, 4, YELLOW);
+    plot_ellipse(x + 4, y - 4, 4, 4, YELLOW);
+	plot_ellipse(x - 4, y - 4, 4, 4, YELLOW);
+
+    // draw center of the flower
+    plot_ellipse(x, y, 4, 4, color);
+}
 
 /* Draw simple shapes and lines */
 void plot_pixel(int x, int y, short int line_color)
