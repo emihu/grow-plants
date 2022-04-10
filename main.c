@@ -90,6 +90,13 @@ typedef struct Box_Info {
     short int color;        // colour
 } Box_Info;
 
+typedef struct Flower_Info {
+    int x;                  // (x,y) positions
+    int y;
+    int x_dir;              // directions, either -1 or 1
+    int y_dir;
+    short int color;        // colour
+} Flower_Info;
 
 /*
  * GLOBAL VARIABLES
@@ -102,6 +109,13 @@ Box_Info old_boxes[SW_MAX];
 int num_boxes;
 int num_curr_boxes;
 int num_old_boxes;
+
+Flower_Info flowers[SW_MAX];
+Flower_Info old_flowers[SW_MAX];
+
+int num_flowers;
+int num_curr_flowers;
+int num_old_flowers;
 
 volatile int pixel_buffer_start; // global variable
 
@@ -130,6 +144,13 @@ void move_boxes();
 void update_old_boxes();
 void clear_boxes();
 void draw_box_lines();
+
+/* Draw and animate flowers */
+void init_flowers();
+void move_flowers();
+void update_old_flowers();
+void clear_flowers();
+void draw_all_flowers();
 void draw_flower(int x, int y, short int color);
 
 /* Draw simple shapes and lines */
@@ -156,6 +177,16 @@ typedef struct Rand_Box_Info {
     int reverse_x;
     int reverse_y;
 } Rand_Box_Info;
+
+typedef struct Rand_Flower_Info {
+    double x;               // (x,y) positions
+    double y;
+    double x_dir;           // directions, either -1 or 1
+    double y_dir;
+    short int color;        // colour
+    int reverse_x;
+    int reverse_y;
+} Rand_Flower_Info;
 
 typedef struct D_Point {
     double x;               // (x,y) positions
@@ -195,8 +226,8 @@ void init_rand_point () {
 }
 void draw_rand_point () {
     // clear box
-    draw_box((int)old_rand_box.x, (int)old_rand_box.y, 
-             old_rand_box.color, 5);
+	draw_box((int)old_rand_box.x - 9, (int)old_rand_box.y - 9, 
+             old_rand_box.color, 18);
     plot_quad_bezier((int)initial_point.x, (int)initial_point.y, 
                      (int)initial_point.x, (int)old_rand_box.y,
                      (int)old_rand_box.x, (int)old_rand_box.y,
@@ -222,7 +253,8 @@ void draw_rand_point () {
     rand_box.x_dir = dir.x;
     rand_box.y_dir = dir.y;
 
-    draw_box((int)rand_box.x, (int)rand_box.y, rand_box.color, 5);
+    //draw_box((int)rand_box.x, (int)rand_box.y, rand_box.color, 5);
+    draw_flower((int)rand_box.x, (int)rand_box.y, rand_box.color);
     plot_quad_bezier((int)initial_point.x, (int)initial_point.y, 
                      (int)initial_point.x, (int)rand_box.y,
                      (int)rand_box.x, (int)rand_box.y,
@@ -243,8 +275,17 @@ int main(void)
     if (num_boxes > SW_MAX)
         num_boxes = SW_MAX;
 
+    // initialize number of flowers
+    num_curr_flowers = 0;
+    num_flowers = *SW_ptr;
+    if (num_flowers > SW_MAX)
+        num_flowers = SW_MAX;
+
     // initialize location and direction of rectangles
     init_boxes();
+
+    // initialize location and direction of flowers
+    init_flowers();
 
     set_A9_IRQ_stack();      // initialize the stack pointer for IRQ mode
     config_GIC();            // configure the general interrupt controller
@@ -264,11 +305,22 @@ int main(void)
         if (num_boxes > SW_MAX)
             num_boxes = SW_MAX;
 
+        // set new number of flowers
+        num_flowers = *SW_ptr;
+        if (num_flowers > SW_MAX)
+            num_flowers = SW_MAX;
+
         init_boxes();       // initialize any new boxes
         clear_boxes();      // erase any boxes and lines in the last iteration
         update_old_boxes(); // update the locations of boxes
         move_boxes();
         draw_box_lines();             // draw the boxes and lines
+
+        init_flowers();         // initialize any new flowers
+        clear_flowers();        // erase any flowers in the last iteration
+        update_old_flowers();   // update the locations of flowers
+        move_flowers();         // move the flowers
+        draw_all_flowers();     // draw all of the flowers
 
         draw_rand_point ();
 
@@ -324,6 +376,50 @@ void draw_box_lines() {
         plot_line(boxes[i].x, boxes[i].y, 
                   boxes[(i+1)%num_curr_boxes].x, boxes[(i+1)%num_curr_boxes].y, 
                   boxes[i].color);
+    }
+}
+
+/* Draw and animate flowers */
+void init_flowers (){
+    for (int i = num_curr_flowers; i < num_flowers; ++i) {
+        flowers[i].x = rand() % RESOLUTION_X;
+        flowers[i].y = rand() % RESOLUTION_Y;
+        flowers[i].x_dir = rand() % 2 * 2 - 1;
+        flowers[i].y_dir = rand() % 2 * 2 - 1;
+        flowers[i].color = (short int)(rand() % 0xFFFF);
+    }
+}
+
+void move_flowers (){
+    for (int i = 0; i < num_flowers; ++i) {
+        if (flowers[i].x <= 0 || flowers[i].x >= RESOLUTION_X)
+            flowers[i].x_dir *= -1;
+        if (flowers[i].y <= 0 || flowers[i].y >= RESOLUTION_Y)
+            flowers[i].y_dir *= -1; 
+
+        flowers[i].x += flowers[i].x_dir;
+        flowers[i].y += flowers[i].y_dir;
+    }
+    num_curr_flowers = num_flowers;
+}
+
+void update_old_flowers (){
+    for (int i = 0; i < num_curr_flowers; ++i) {
+        old_flowers[i].x = flowers[i].x;
+        old_flowers[i].y = flowers[i].y;
+    }
+    num_old_flowers = num_curr_flowers;
+}
+
+void clear_flowers() {
+    for (int i = 0; i < num_old_flowers; ++i) {
+        draw_flower(old_flowers[i].x, old_flowers[i].y, BLACK);
+    }
+}
+
+void draw_all_flowers() {
+    for (int i = 0; i < num_curr_flowers; ++i) {
+        draw_flower(flowers[i].x, flowers[i].y, flowers[i].color);
     }
 }
 
