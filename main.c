@@ -84,9 +84,9 @@
 #define STEM_LEN_DEVIATION 2 // how much the length may deviate from base in either direction
 
 /* Stem branch chance and period constants */
-#define STEM_BRNCH_CHANCE_BASE 0.5 // base chance of a stem branching at a node
+#define STEM_BRNCH_CHANCE_BASE 0.6 // base chance of a stem branching at a node
 #define STEM_BRNCH_REDUC_PER_BRNCH 0.15 // every time the stem branches, the chance of further branching reduces
-#define STEM_BRNCH_PERIOD_BASE 40 // how long it will take for a node to branch
+#define STEM_BRNCH_PERIOD_BASE 50 // how long it will take for a node to branch
 #define STEM_BRNCH_PERIOD_DEVIATION 20 // how much the branch period may deviate from base in either direction
 
 /* Stem node adding constants */
@@ -283,6 +283,55 @@ D_Point bez_ctr_from_curve (double x0, double y0, double xt, double yt, double x
 
 
 Stem_List test_stem;
+
+
+#define REPEL_RANGE 10
+#define REPEL_STRENGTH 1.0 // fastest speed change caused be repelling
+
+short int get_pixel (int x, int y) {
+    if (x < 0 || y < 0 || x > RESOLUTION_X || y > RESOLUTION_Y)
+        return BLACK;
+    volatile short int pixel = *(short int *)(FPGA_ONCHIP_BASE + (y << 10) + (x << 1));
+    pixel = pixel & 0x0000FFFF;
+    return pixel;
+}
+
+D_Point repel_from_surround (int x, int y, double x_dir, double y_dir, int range) 
+{
+    // closest point left, right, up, and down of the given point
+    int left_dist = INVALID_POS, right_dist = INVALID_POS;
+    int up_dist = INVALID_POS, down_dist = INVALID_POS;
+
+    for (int i = 1; i < range; ++i) {
+        if ((left_dist == INVALID_POS) && (get_pixel(x - i, y) != BLACK || x - i < 0))
+            left_dist = i;
+        if ((right_dist == INVALID_POS) && (get_pixel(x + i, y) != BLACK || x + i > RESOLUTION_X))
+            right_dist = i;
+        if ((up_dist == INVALID_POS) && (get_pixel(x, y - i) != BLACK || x - i < 0))
+            up_dist = i;
+        if ((down_dist == INVALID_POS) && (get_pixel(x, y + i) != BLACK || x + i > RESOLUTION_Y))
+            down_dist = i;
+    }
+
+    D_Point repel_dir; // direction modifier
+    repel_dir.x = 0;
+    repel_dir.y = 0;
+
+    repel_dir.x += (abs(left_dist) == 1) ? 0 : REPEL_STRENGTH * ((double)(range - left_dist + 1) / (double)range);
+    repel_dir.x -= (abs(right_dist) == 1) ? 0 : REPEL_STRENGTH * ((double)(range - right_dist + 1) / (double)range);
+
+    repel_dir.y += (abs(up_dist) == 1) ? 0 : REPEL_STRENGTH * ((double)(range - up_dist + 1) / (double)range);
+    repel_dir.y -= (abs(down_dist) == 1) ? 0 : REPEL_STRENGTH * ((double)(range - down_dist + 1) / (double)range);
+
+    return repel_dir;
+}
+
+void move_point_from_repel (Moving_Point *point)
+{
+    D_Point repel_dir = repel_from_surround(point->x, point->y, point->x_dir, point->y_dir, REPEL_RANGE);
+    point->x_dir = repel_dir.x;
+    point->y_dir = repel_dir.y;
+}
 
 
 // determines the length of a stem
@@ -575,8 +624,8 @@ void draw_old_stem_nodes (Stem_List *list, short int color)
 {
     Stem_Node *n = list->head;
 	while (n != NULL && n->next != NULL) { // traverse list until reach last node
-		draw_box((int)(n->old_point).x, (int)(n->old_point).y, color, 2);
-        draw_box((int)(n->next->old_point).x, (int)(n->next->old_point).y, color, 2);
+		//draw_box((int)(n->old_point).x, (int)(n->old_point).y, color, 2);
+        //draw_box((int)(n->next->old_point).x, (int)(n->next->old_point).y, color, 2);
         plot_quad_bezier((int)(n->old_point).x, (int)(n->old_point).y, 
                          (int)(n->next->old_bez_point).x, (int)(n->next->old_bez_point).y,
                          (int)(n->next->old_point).x, (int)(n->next->old_point).y,
@@ -589,8 +638,8 @@ void draw_stem_nodes (Stem_List *list, short int color)
 {
     Stem_Node *n = list->head;
 	while (n != NULL && n->next != NULL) { // traverse list until reach last node
-		draw_box((int)(n->point).x, (int)(n->point).y, test_stem.color, 2);
-        draw_box((int)(n->next->point).x, (int)(n->next->point).y, test_stem.color, 2);
+		//draw_box((int)(n->point).x, (int)(n->point).y, test_stem.color, 2);
+        //draw_box((int)(n->next->point).x, (int)(n->next->point).y, test_stem.color, 2);
         plot_quad_bezier((int)(n->point).x, (int)(n->point).y, 
                          (int)(n->next->bez_ctr_point).x, (int)(n->next->bez_ctr_point).y,
                          (int)(n->next->point).x, (int)(n->next->point).y,
@@ -640,10 +689,12 @@ void move_stem_points (Stem_List *list)
         double dir_factor = (list->length < list->length_lim && n == list->tail) ? 1 : 0.1;
 
         move_point_in_vec_field(&(n->point), dir_factor);
-        // if tail still growing, do not move its Bezier control point
+        // if tail still growing, do not move its Bezier control point, but move based on surrounding points
         // if tail stopped growing, move its Bezier control point with the others
         if (n->next != NULL || list->length >= list->length_lim)
             move_point_in_vec_field(&(n->bez_ctr_point), dir_factor);
+        else
+            move_point_from_repel(&(list->tail->point));
 
         n = n->next;
     }
