@@ -72,26 +72,30 @@
 
 /* Constants for moving points and vector field */
 #define FIELD_SCALE 60 // the higher, the less the field changes
-#define SPEED_SCALE 0.5
+#define SPEED_SCALE 0.6
 
 /* Constants for stem growth */
 #define BEZ_CHANGE_FREQ 12 // 12 Bezier control point changes per growth
 #define BEZ_DIV_LIM 2 // allow enough distance before determining the Bezier control points
 
 /* Stem length constants */
-#define STEM_LEN_BASE 10 // length of a base stem
-#define STEM_LEN_REDUC_PER_BRNCH 4 // every time the stem branches, the length is reduced
+#define STEM_LEN_BASE 12 // length of a base stem
+#define STEM_LEN_REDUC_PER_BRNCH 5 // every time the stem branches, the length is reduced
 #define STEM_LEN_DEVIATION 2 // how much the length may deviate from base in either direction
 
 /* Stem branch chance and period constants */
-#define STEM_BRNCH_CHANCE_BASE 0.6 // base chance of a stem branching at a node
-#define STEM_BRNCH_REDUC_PER_BRNCH 0.15 // every time the stem branches, the chance of further branching reduces
-#define STEM_BRNCH_PERIOD_BASE 50 // how long it will take for a node to branch
+#define STEM_BRNCH_CHANCE_BASE 0.75 // base chance of a stem branching at a node
+#define STEM_BRNCH_REDUC_PER_BRNCH 0.25 // every time the stem branches, the chance of further branching reduces
+#define STEM_BRNCH_PERIOD_BASE 70 // how long it will take for a node to branch
 #define STEM_BRNCH_PERIOD_DEVIATION 20 // how much the branch period may deviate from base in either direction
 
 /* Stem node adding constants */
 #define STEM_ADD_PERIOD_BASE 30 // 1 new node per 30*0.1 seconds (must be at least double BEZ_CHANGE_FREQ)
 #define STEM_ADD_PERIOD_DEVIATION 20 // how much the period may deviate from base in either direction
+
+/* Stem repelling from other pixels constants */
+#define REPEL_RANGE 12 // how far a stem can be affected by repelling
+#define REPEL_STRENGTH 2.0 // fastest speed change that repelling can cause
 
 /* Boolean constants */
 #define FALSE 0
@@ -232,6 +236,9 @@ void wait_for_vsync();
 void init_moving_point (Moving_Point *point, double x, double y, short int rev_x, short int rev_y);
 void init_stem_node (Stem_Node *node, double x, double y, double bez_x, double bez_y, short int rev_x, short int rev_y, short int can_branch);
 void init_stem_list (Stem_List *list, double x, double y, int color, int num_branches);
+int get_stem_length (int num_branches);
+short int is_branchable (int num_branches);
+int get_stem_growth_period ();
 
 /* Operate on stem list */
 void add_stem_node (Stem_List *list, double x, double y, double bez_x, double bez_y, short int rev_x, short int rev_y);
@@ -244,6 +251,8 @@ void draw_old_stem_nodes (Stem_List *list, short int color);
 void draw_stem_nodes (Stem_List *list, short int color);
 void update_old_stem_points (Stem_List *list);
 void move_point_in_vec_field (Moving_Point *point, double dir_factor);
+void move_point_from_repel (Moving_Point *point);
+D_Point repel_from_surround (int x, int y, double x_dir, double y_dir, int range);
 void move_stem_points (Stem_List *list);
 void store_grow_position (Stem_List *list, int d_node_time, int bez_time_div);
 void set_grow_bez_point (Stem_List *list, int d_node_time, int bez_time_div);
@@ -268,6 +277,7 @@ void draw_flower(int x, int y, short int color, short int size);
 
 /* Draw simple shapes and lines */
 void plot_pixel(int x, int y, short int line_color);
+short int get_pixel (int x, int y);
 void draw_box(int x0, int y0, short int color, int length);
 void plot_line(int x0, int y0, int x1, int y1, short int line_color);
 void plot_ellipse(int x0, int y0, int r1, int r2, short int color);
@@ -284,92 +294,6 @@ D_Point bez_ctr_from_curve (double x0, double y0, double xt, double yt, double x
 
 Stem_List test_stem;
 
-
-#define REPEL_RANGE 10
-#define REPEL_STRENGTH 1.0 // fastest speed change caused be repelling
-
-short int get_pixel (int x, int y) {
-    if (x < 0 || y < 0 || x > RESOLUTION_X || y > RESOLUTION_Y)
-        return BLACK;
-    volatile short int pixel = *(short int *)(FPGA_ONCHIP_BASE + (y << 10) + (x << 1));
-    pixel = pixel & 0x0000FFFF;
-    return pixel;
-}
-
-D_Point repel_from_surround (int x, int y, double x_dir, double y_dir, int range) 
-{
-    // closest point left, right, up, and down of the given point
-    int left_dist = INVALID_POS, right_dist = INVALID_POS;
-    int up_dist = INVALID_POS, down_dist = INVALID_POS;
-
-    for (int i = 1; i < range; ++i) {
-        if ((left_dist == INVALID_POS) && (get_pixel(x - i, y) != BLACK || x - i < 0))
-            left_dist = i;
-        if ((right_dist == INVALID_POS) && (get_pixel(x + i, y) != BLACK || x + i > RESOLUTION_X))
-            right_dist = i;
-        if ((up_dist == INVALID_POS) && (get_pixel(x, y - i) != BLACK || x - i < 0))
-            up_dist = i;
-        if ((down_dist == INVALID_POS) && (get_pixel(x, y + i) != BLACK || x + i > RESOLUTION_Y))
-            down_dist = i;
-    }
-
-    D_Point repel_dir; // direction modifier
-    repel_dir.x = 0;
-    repel_dir.y = 0;
-
-    repel_dir.x += (abs(left_dist) == 1) ? 0 : REPEL_STRENGTH * ((double)(range - left_dist + 1) / (double)range);
-    repel_dir.x -= (abs(right_dist) == 1) ? 0 : REPEL_STRENGTH * ((double)(range - right_dist + 1) / (double)range);
-
-    repel_dir.y += (abs(up_dist) == 1) ? 0 : REPEL_STRENGTH * ((double)(range - up_dist + 1) / (double)range);
-    repel_dir.y -= (abs(down_dist) == 1) ? 0 : REPEL_STRENGTH * ((double)(range - down_dist + 1) / (double)range);
-
-    return repel_dir;
-}
-
-void move_point_from_repel (Moving_Point *point)
-{
-    D_Point repel_dir = repel_from_surround(point->x, point->y, point->x_dir, point->y_dir, REPEL_RANGE);
-    point->x_dir = repel_dir.x;
-    point->y_dir = repel_dir.y;
-}
-
-
-// determines the length of a stem
-int get_stem_length (int num_branches)
-{
-    int length = STEM_LEN_BASE; // base stem length
-    length -= STEM_LEN_REDUC_PER_BRNCH * num_branches; // adjust for branching
-
-    // random deviation of length from -2 to +2
-    int deviation = rand() % (STEM_LEN_DEVIATION * 2 + 1) - STEM_LEN_DEVIATION;
-    length += deviation;
-
-    if (length < 0)
-        length = 0;
-
-    return length;
-}
-
-short int is_branchable (int num_branches) 
-{
-    double chance = STEM_BRNCH_CHANCE_BASE - STEM_BRNCH_REDUC_PER_BRNCH * num_branches;
-    short int branchable = (((double)(rand() % 101) / 100.0) < chance) ? TRUE : FALSE;
-    return branchable;
-}
-
-// determines the how soon a new stem node may be added (must be at least double BEZ_CHANGE_FREQ)
-int get_stem_growth_period ()
-{
-    int period = STEM_ADD_PERIOD_BASE; // base stem length
-
-    int deviation = rand() % (STEM_ADD_PERIOD_DEVIATION * 2 + 1) - STEM_ADD_PERIOD_DEVIATION;
-    period += deviation;
-
-    if (period < BEZ_CHANGE_FREQ * 2)
-        period = BEZ_CHANGE_FREQ * 2;
-
-    return period;
-}
 
 void init_stem () 
 {
@@ -563,6 +487,44 @@ void init_stem_list (Stem_List *list, double x, double y, int color, int num_bra
     list->tail = NULL;
 }
 
+// determines the length of a stem
+int get_stem_length (int num_branches)
+{
+    int length = STEM_LEN_BASE; // base stem length
+    length -= STEM_LEN_REDUC_PER_BRNCH * num_branches; // adjust for branching
+
+    // random deviation of length from -2 to +2
+    int deviation = rand() % (STEM_LEN_DEVIATION * 2 + 1) - STEM_LEN_DEVIATION;
+    length += deviation;
+
+    if (length < 0)
+        length = 0;
+
+    return length;
+}
+
+short int is_branchable (int num_branches) 
+{
+    double chance = STEM_BRNCH_CHANCE_BASE - STEM_BRNCH_REDUC_PER_BRNCH * num_branches;
+    short int branchable = (((double)(rand() % 101) / 100.0) < chance) ? TRUE : FALSE;
+    return branchable;
+}
+
+// determines the how soon a new stem node may be added (must be at least double BEZ_CHANGE_FREQ)
+int get_stem_growth_period ()
+{
+    int period = STEM_ADD_PERIOD_BASE; // base stem length
+
+    int deviation = rand() % (STEM_ADD_PERIOD_DEVIATION * 2 + 1) - STEM_ADD_PERIOD_DEVIATION;
+    period += deviation;
+
+    if (period < BEZ_CHANGE_FREQ * 2)
+        period = BEZ_CHANGE_FREQ * 2;
+
+    return period;
+}
+
+
 /* Operate on stem list */
 void add_stem_node (Stem_List *list, double x, double y, double bez_x, double bez_y, short int rev_x, short int rev_y) 
 {
@@ -680,6 +642,43 @@ void move_point_in_vec_field (Moving_Point *point, double dir_factor)
     D_Point dir = vector_field(point->x, point->y, gTime);
     point->x_dir = dir_factor * dir.x;
     point->y_dir = dir_factor * dir.y;
+}
+
+void move_point_from_repel (Moving_Point *point)
+{
+    D_Point repel_dir = repel_from_surround(point->x, point->y, point->x_dir, point->y_dir, REPEL_RANGE);
+    point->x_dir += repel_dir.x;
+    point->y_dir += repel_dir.y;
+}
+
+D_Point repel_from_surround (int x, int y, double x_dir, double y_dir, int range) 
+{
+    // closest point left, right, up, and down of the given point
+    int left_dist = INVALID_POS, right_dist = INVALID_POS;
+    int up_dist = INVALID_POS, down_dist = INVALID_POS;
+
+    for (int i = 1; i < range; ++i) {
+        if ((left_dist == INVALID_POS) && (get_pixel(x - i, y) != BLACK || x - i < 0))
+            left_dist = i;
+        if ((right_dist == INVALID_POS) && (get_pixel(x + i, y) != BLACK || x + i > RESOLUTION_X))
+            right_dist = i;
+        if ((up_dist == INVALID_POS) && (get_pixel(x, y - i) != BLACK || x - i < 0))
+            up_dist = i;
+        if ((down_dist == INVALID_POS) && (get_pixel(x, y + i) != BLACK || x + i > RESOLUTION_Y))
+            down_dist = i;
+    }
+
+    D_Point repel_dir; // direction modifier
+    repel_dir.x = 0;
+    repel_dir.y = 0;
+
+    repel_dir.x += (abs(left_dist) == 1) ? 0 : REPEL_STRENGTH * ((double)(range - left_dist + 1) / (double)range);
+    repel_dir.x -= (abs(right_dist) == 1) ? 0 : REPEL_STRENGTH * ((double)(range - right_dist + 1) / (double)range);
+
+    repel_dir.y += (abs(up_dist) == 1) ? 0 : REPEL_STRENGTH * ((double)(range - up_dist + 1) / (double)range);
+    repel_dir.y -= (abs(down_dist) == 1) ? 0 : REPEL_STRENGTH * ((double)(range - down_dist + 1) / (double)range);
+
+    return repel_dir;
 }
 
 void move_stem_points (Stem_List *list) 
@@ -966,6 +965,15 @@ void plot_pixel(int x, int y, short int line_color)
     if (x < 0 || y < 0 || x > RESOLUTION_X || y > RESOLUTION_Y)
         return;
     *(short int *)(pixel_buffer_start + (y << 10) + (x << 1)) = line_color;
+}
+
+short int get_pixel (int x, int y)
+{
+    if (x < 0 || y < 0 || x > RESOLUTION_X || y > RESOLUTION_Y)
+        return BLACK;
+    volatile short int pixel = *(short int *)(FPGA_ONCHIP_BASE + (y << 10) + (x << 1));
+    pixel = pixel & 0x0000FFFF;
+    return pixel;
 }
 
 void draw_box(int x0, int y0, short int color, int length)
