@@ -70,23 +70,47 @@
 #define NUM_BOXES 8
 #define SW_MAX 64
 
-#define FALSE 0
-#define TRUE 1
-
 /* Constants for moving points and vector field */
 #define FIELD_SCALE 60 // the higher, the less the field changes
 #define SPEED_SCALE 0.5
 
 /* Constants for stem growth */
-#define ADD_NODE_PERIOD 30 // 1 new node per 30*0.1 seconds
 #define BEZ_CHANGE_FREQ 12 // 12 Bezier control point changes per growth
 #define BEZ_DIV_LIM 2 // allow enough distance before determining the Bezier control points
+
+/* Stem length constants */
+#define STEM_LEN_BASE 10 // length of a base stem
+#define STEM_LEN_REDUC_PER_BRNCH 4 // every time the stem branches, the length is reduced
+#define STEM_LEN_DEVIATION 2 // how much the length may deviate from base in either direction
+
+/* Stem branch chance and period constants */
+#define STEM_BRNCH_CHANCE_BASE 0.5 // base chance of a stem branching at a node
+#define STEM_BRNCH_REDUC_PER_BRNCH 0.15 // every time the stem branches, the chance of further branching reduces
+#define STEM_BRNCH_PERIOD_BASE 40 // how long it will take for a node to branch
+#define STEM_BRNCH_PERIOD_DEVIATION 20 // how much the branch period may deviate from base in either direction
+
+/* Stem node adding constants */
+#define STEM_ADD_PERIOD_BASE 30 // 1 new node per 30*0.1 seconds (must be at least double BEZ_CHANGE_FREQ)
+#define STEM_ADD_PERIOD_DEVIATION 20 // how much the period may deviate from base in either direction
+
+/* Boolean constants */
+#define FALSE 0
+#define TRUE 1
 
 
 /* Include directives */
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
+
+
+/*
+ * STRUCT DECLARATION
+ */
+typedef struct Moving_Point Moving_Point;
+typedef struct D_Point D_Point;
+typedef struct Stem_Node Stem_Node;
+typedef struct Stem_List Stem_List;
 
 
 /*
@@ -144,15 +168,20 @@ typedef struct Stem_Node {
     D_Point old_point; // previous location of node
     int creation_time; // the time at which this node is created
     int bez_ctr_time; // the time the Bezier control point is established
-    struct Stem_Node * next;
+    Stem_Node * next;
+
+    short int branchable;
+    int branch_period;
+    Stem_List * branching_stem;
 } Stem_Node;
 
 typedef struct Stem_List {
-    short int is_growing; // either 0 or 1, if stem currently growing at tail
     short int created_new; // either 0 or 1, ensures only one new node at a time
-    int length;
+    int length; // current length of the stem list
+    int length_lim; // limit of stem length
     int growth_period;
     D_Point grow_ctr_points[BEZ_CHANGE_FREQ - BEZ_DIV_LIM]; // points for growing node bezier curve
+    int num_branches;
     short int color;
     Stem_Node * head;
     Stem_Node * tail;
@@ -178,7 +207,7 @@ int num_flowers;
 int num_curr_flowers;
 int num_old_flowers;
 
-volatile int pixel_buffer_start; // global variable
+volatile int pixel_buffer_start;
 
 
 /*
@@ -201,15 +230,26 @@ void wait_for_vsync();
 
 /* Initialize structures */
 void init_moving_point (Moving_Point *point, double x, double y, short int rev_x, short int rev_y);
-void init_stem_node (Stem_Node *node, double x, double y, double bez_x, double bez_y, short int rev_x, short int rev_y);
-void init_stem_list (Stem_List *list, double x, double y, int color);
+void init_stem_node (Stem_Node *node, double x, double y, double bez_x, double bez_y, short int rev_x, short int rev_y, short int can_branch);
+void init_stem_list (Stem_List *list, double x, double y, int color, int num_branches);
 
 /* Operate on stem list */
 void add_stem_node (Stem_List *list, double x, double y, double bez_x, double bez_y, short int rev_x, short int rev_y);
 void free_stem_list (Stem_List *list);
 
 /* Draw stem */
-D_Point vector_field (double x, double y, double time);
+void draw_stem (Stem_List *list);
+void add_new_stem_node (Stem_List *list);
+void draw_old_stem_nodes (Stem_List *list, short int color);
+void draw_stem_nodes (Stem_List *list, short int color);
+void update_old_stem_points (Stem_List *list);
+void move_point_in_vec_field (Moving_Point *point, double dir_factor);
+void move_stem_points (Stem_List *list);
+void store_grow_position (Stem_List *list, int d_node_time, int bez_time_div);
+void set_grow_bez_point (Stem_List *list, int d_node_time, int bez_time_div);
+void update_growing_stem_bez_point (Stem_List *list);
+void branch_stem (Stem_List *list);
+void draw_branching_stems_rec (Stem_List *list);
 
 /* Draw larger structures */
 void init_boxes();
@@ -237,6 +277,7 @@ void clear_screen();
 
 /* Helper functions */
 void swap (int *first, int *second);
+D_Point vector_field (double x, double y, double time);
 // returns the control point for the Bezier curve described by the three point parameters
 D_Point bez_ctr_from_curve (double x0, double y0, double xt, double yt, double x2, double y2, double tr);
 
@@ -244,151 +285,53 @@ D_Point bez_ctr_from_curve (double x0, double y0, double xt, double yt, double x
 Stem_List test_stem;
 
 
+// determines the length of a stem
+int get_stem_length (int num_branches)
+{
+    int length = STEM_LEN_BASE; // base stem length
+    length -= STEM_LEN_REDUC_PER_BRNCH * num_branches; // adjust for branching
+
+    // random deviation of length from -2 to +2
+    int deviation = rand() % (STEM_LEN_DEVIATION * 2 + 1) - STEM_LEN_DEVIATION;
+    length += deviation;
+
+    if (length < 0)
+        length = 0;
+
+    return length;
+}
+
+short int is_branchable (int num_branches) 
+{
+    double chance = STEM_BRNCH_CHANCE_BASE - STEM_BRNCH_REDUC_PER_BRNCH * num_branches;
+    short int branchable = (((double)(rand() % 101) / 100.0) < chance) ? TRUE : FALSE;
+    return branchable;
+}
+
+// determines the how soon a new stem node may be added (must be at least double BEZ_CHANGE_FREQ)
+int get_stem_growth_period ()
+{
+    int period = STEM_ADD_PERIOD_BASE; // base stem length
+
+    int deviation = rand() % (STEM_ADD_PERIOD_DEVIATION * 2 + 1) - STEM_ADD_PERIOD_DEVIATION;
+    period += deviation;
+
+    if (period < BEZ_CHANGE_FREQ * 2)
+        period = BEZ_CHANGE_FREQ * 2;
+
+    return period;
+}
+
 void init_stem () 
 {
     int start_x = rand() % RESOLUTION_X;
     int start_y = rand() % RESOLUTION_Y;
 
-    init_stem_list(&test_stem, start_x, start_y, (short int)(rand() % 0xFFFF));
+    init_stem_list(&test_stem, start_x, start_y, (short int)(rand() % 0xFFFF), 0);
     
     add_stem_node(&test_stem, start_x, start_y, INVALID_POS, INVALID_POS, 1, 1);
 }
 
-void draw_stem () 
-{
-    //// add new nodes
-    /* IF IS STILL GROWING */
-    if (test_stem.created_new == FALSE && (gTime - test_stem.tail->creation_time) >= test_stem.growth_period) {
-        add_stem_node(&test_stem, test_stem.tail->old_point.x, test_stem.tail->old_point.y, 
-                      test_stem.tail->old_point.x, test_stem.tail->old_point.y, 
-                      test_stem.tail->point.reverse_x, test_stem.tail->point.reverse_y);
-        /* UPDATE STEM GROWTH PERIOD */
-        test_stem.created_new = TRUE;
-    } else {
-        test_stem.created_new = FALSE;
-    }
-    
-    //// clear stem
-    Stem_Node *n = test_stem.head;
-	while (n != NULL && n->next != NULL) { // traverse list until reach last node
-		draw_box((int)(n->old_point).x, (int)(n->old_point).y, BLACK, 2);
-        //draw_box((int)(n->next->bez_ctr_point).x, (int)(n->next->old_bez_point).y, BLACK, 4); /* TESTING BEZIER CTR POINT */
-        draw_box((int)(n->next->old_point).x, (int)(n->next->old_point).y, BLACK, 2);
-        plot_quad_bezier((int)(n->old_point).x, (int)(n->old_point).y, 
-                         (int)(n->next->old_bez_point).x, (int)(n->next->old_bez_point).y,
-                         (int)(n->next->old_point).x, (int)(n->next->old_point).y,
-                         BLACK);
-        n = n->next; // n points to last node of list when done
-    }
-
-    //// update old points
-    n = test_stem.head;
-	while (n != NULL) {
-        n->old_point.x = n->point.x;
-        n->old_point.y = n->point.y;
-        n->old_bez_point.x = n->bez_ctr_point.x;
-        n->old_bez_point.y = n->bez_ctr_point.y;
-
-        n = n->next;
-    }
-    
-    //// move points of stem
-    n = test_stem.head;
-	while (n != NULL) {
-        if (n->point.x <= 0 || n->point.x >= RESOLUTION_X)
-            n->point.reverse_x *= -1;
-        if (n->point.y <= 0 || n->point.y >= RESOLUTION_Y)
-            n->point.reverse_y *= -1; 
-        n->point.x += SPEED_SCALE * n->point.x_dir * n->point.reverse_x;
-        n->point.y += SPEED_SCALE * n->point.y_dir * n->point.reverse_y;
-
-        if (n->point.x < 0) n->point.x = 0;
-        if (n->point.y < 0) n->point.y = 0;
-
-        // change direction
-        double dir_factor = (n == test_stem.tail) ? 1 : 0.1;
-        D_Point dir = vector_field(n->point.x, n->point.y, gTime);
-        n->point.x_dir = dir_factor * dir.x;
-        n->point.y_dir = dir_factor * dir.y;
-
-        n = n->next;
-    }
-
-    //// move Bezier control points
-    n = test_stem.head;
-	while (n != NULL && n->next != NULL) { // traverse list until reach last node
-		if (n->bez_ctr_point.x <= 0 || n->bez_ctr_point.x >= RESOLUTION_X)
-            n->bez_ctr_point.reverse_x *= -1;
-        if (n->bez_ctr_point.y <= 0 || n->bez_ctr_point.y >= RESOLUTION_Y)
-            n->bez_ctr_point.reverse_y *= -1; 
-        n->bez_ctr_point.x += SPEED_SCALE * n->bez_ctr_point.x_dir * n->bez_ctr_point.reverse_x;
-        n->bez_ctr_point.y += SPEED_SCALE * n->bez_ctr_point.y_dir * n->bez_ctr_point.reverse_y;
-
-        if (n->bez_ctr_point.x < 0) n->bez_ctr_point.x = 0;
-        if (n->bez_ctr_point.y < 0) n->bez_ctr_point.y = 0;
-
-        // change direction
-        double dir_factor = (n == test_stem.tail) ? 1 : 0.1;
-        D_Point dir = vector_field(n->bez_ctr_point.x, n->bez_ctr_point.y, gTime);
-        n->bez_ctr_point.x_dir = dir_factor * dir.x;
-        n->bez_ctr_point.y_dir = dir_factor * dir.y;
-
-        n = n->next;
-    }
-
-    /// set new Bezier control point for growing point
-    int d_node_time = gTime - test_stem.tail->creation_time; // time the node has existed for
-    int bez_time_div = test_stem.growth_period/BEZ_CHANGE_FREQ;
-
-    // determine stored growth point position values for Bezier control point in stem
-    for (int i = BEZ_CHANGE_FREQ; i > BEZ_DIV_LIM; --i) {
-        if (test_stem.head == test_stem.tail)
-            break;
-        if (d_node_time > i*(bez_time_div/2))
-            break;
-        if (d_node_time < (i-1)*(bez_time_div/2)) // if less than previous division, skip
-            continue;
-        test_stem.grow_ctr_points[i - 1 - BEZ_DIV_LIM].x = test_stem.tail->point.x;
-        test_stem.grow_ctr_points[i - 1 - BEZ_DIV_LIM].y = test_stem.tail->point.y;
-    }
-
-    // use stored values to calculate Bezier control point for growth point
-    for (int i = BEZ_CHANGE_FREQ; i > BEZ_DIV_LIM; --i) {
-        if (test_stem.head == test_stem.tail)
-            break;
-        if (d_node_time > i*bez_time_div) // if more than current division, done
-            break;
-        if (d_node_time < (i-1)*bez_time_div) // if less than previous division, skip
-            continue;
-        
-        Stem_Node *pre_tail = test_stem.head;
-        while (pre_tail != NULL && pre_tail->next != test_stem.tail) {
-            pre_tail = pre_tail->next;
-        }
-
-        double time_ratio = (double)(i*(bez_time_div/2)) / (double)d_node_time;
-
-        D_Point new_bez_point = bez_ctr_from_curve(pre_tail->point.x, pre_tail->point.y,
-                                                   test_stem.grow_ctr_points[i - 1 - BEZ_DIV_LIM].x, test_stem.grow_ctr_points[i - 1 - BEZ_DIV_LIM].y,
-                                                   test_stem.tail->point.x, test_stem.tail->point.y, time_ratio);
-        test_stem.tail->bez_ctr_point.x = new_bez_point.x;
-        test_stem.tail->bez_ctr_point.y = new_bez_point.y;
-        test_stem.tail->bez_ctr_time = gTime;
-    }
-
-
-    //// draw stem
-    n = test_stem.head;
-	while (n != NULL && n->next != NULL) { // traverse list until reach last node
-		draw_box((int)(n->point).x, (int)(n->point).y, test_stem.color, 2);
-        draw_box((int)(n->next->point).x, (int)(n->next->point).y, test_stem.color, 2);
-        plot_quad_bezier((int)(n->point).x, (int)(n->point).y, 
-                         (int)(n->next->bez_ctr_point).x, (int)(n->next->bez_ctr_point).y,
-                         (int)(n->next->point).x, (int)(n->next->point).y,
-                         test_stem.color);
-        n = n->next;
-    }
-}
 
 Moving_Point rand_box;
 Moving_Point old_rand_box;
@@ -514,7 +457,8 @@ int main(void)
         draw_all_flowers();     // draw all of the flowers
 
         draw_rand_point ();
-        draw_stem ();
+
+        draw_stem (&test_stem);
 
         wait_for_vsync(); // swap front and back buffers on VGA vertical sync
         pixel_buffer_start = *(pixel_ctrl_ptr + 1); // new back buffer
@@ -534,7 +478,7 @@ void init_moving_point (Moving_Point *point, double x, double y, short int rev_x
     point->reverse_y = rev_y;
 }
 
-void init_stem_node (Stem_Node *node, double x, double y, double bez_x, double bez_y, short int rev_x, short int rev_y) 
+void init_stem_node (Stem_Node *node, double x, double y, double bez_x, double bez_y, short int rev_x, short int rev_y, short int can_branch) 
 {
     init_moving_point(&(node->point), x, y, rev_x, rev_y);
     init_moving_point(&(node->bez_ctr_point), bez_x, bez_y, rev_x, rev_y);
@@ -545,18 +489,26 @@ void init_stem_node (Stem_Node *node, double x, double y, double bez_x, double b
     node->creation_time = gTime;
     node->bez_ctr_time = gTime;
     node->next = NULL;
+
+    node->branchable = can_branch;
+    node->branch_period = STEM_BRNCH_PERIOD_BASE + rand() % (STEM_BRNCH_PERIOD_DEVIATION * 2 + 1) - STEM_BRNCH_PERIOD_DEVIATION;
+    node->branching_stem = NULL;
 }
 
-void init_stem_list (Stem_List *list, double x, double y, int color) 
+void init_stem_list (Stem_List *list, double x, double y, int color, int num_branches) 
 {
-    list->is_growing = TRUE;
     list->created_new = TRUE;
+
     list->length = 0;
-    list->growth_period = ADD_NODE_PERIOD;       /*** needs function to determine this!!!!!! ***/
+    list->length_lim = get_stem_length(num_branches);
+
+    list->growth_period = get_stem_growth_period();
     for (int i = 0; i < BEZ_CHANGE_FREQ - BEZ_DIV_LIM; ++i) {
         (list->grow_ctr_points[i]).x = x;
         (list->grow_ctr_points[i]).y = y;
     }
+    list->num_branches = num_branches;
+
     list->color = color;
     list->head = NULL;
     list->tail = NULL;
@@ -570,7 +522,9 @@ void add_stem_node (Stem_List *list, double x, double y, double bez_x, double be
         return;
     
     list->length += 1; // adding stem node increases length of stem list
-    init_stem_node(new_node, x, y, bez_x, bez_y, rev_x, rev_y);
+
+    short int branchable = is_branchable(list->num_branches);
+    init_stem_node(new_node, x, y, bez_x, bez_y, rev_x, rev_y, branchable);
     
     if (list->head == NULL) { // list is empty, create first node
         list->head = new_node;
@@ -596,13 +550,210 @@ void free_stem_list (Stem_List *list)
 
 
 /* Draw stem */
-D_Point vector_field (double x, double y, double time) {
-    D_Point point;
-    //point.x = 0.5 * sin((x + y)/FIELD_SCALE) - cos(time/(FIELD_SCALE));
-    //point.y = - 0.5 * cos((x + y)/FIELD_SCALE) + sin(time/(FIELD_SCALE));
-    point.x = sin((sin(time/FIELD_SCALE/4)*x + sin(time/FIELD_SCALE)*y)/FIELD_SCALE);
-    point.y = -cos((cos(time/FIELD_SCALE)*x + cos(time/FIELD_SCALE/4)*y)/FIELD_SCALE);
-    return point;
+void add_new_stem_node (Stem_List *list) 
+{
+    // if the stem can support more nodes, add more
+    if (list->length < list->length_lim) {
+        if (list->created_new == FALSE) {
+            // if appropriate time has passed or just one node in stem (if is a main branch)
+            if ( ((gTime - list->tail->creation_time) >= list->growth_period) || 
+                 (list->head == list->tail)){// && list->num_branches == 0)) {
+
+                add_stem_node(list, list->tail->old_point.x, list->tail->old_point.y, 
+                            list->tail->old_point.x, list->tail->old_point.y, 
+                            list->tail->point.reverse_x, list->tail->point.reverse_y);
+                list->growth_period = get_stem_growth_period(); // update stem growth period
+                list->created_new = TRUE;
+            }
+        } else {
+            list->created_new = FALSE;
+        }
+    }
+}
+
+void draw_old_stem_nodes (Stem_List *list, short int color) 
+{
+    Stem_Node *n = list->head;
+	while (n != NULL && n->next != NULL) { // traverse list until reach last node
+		draw_box((int)(n->old_point).x, (int)(n->old_point).y, color, 2);
+        draw_box((int)(n->next->old_point).x, (int)(n->next->old_point).y, color, 2);
+        plot_quad_bezier((int)(n->old_point).x, (int)(n->old_point).y, 
+                         (int)(n->next->old_bez_point).x, (int)(n->next->old_bez_point).y,
+                         (int)(n->next->old_point).x, (int)(n->next->old_point).y,
+                         color);
+        n = n->next; // n points to last node of list when done
+    }
+}
+
+void draw_stem_nodes (Stem_List *list, short int color) 
+{
+    Stem_Node *n = list->head;
+	while (n != NULL && n->next != NULL) { // traverse list until reach last node
+		draw_box((int)(n->point).x, (int)(n->point).y, test_stem.color, 2);
+        draw_box((int)(n->next->point).x, (int)(n->next->point).y, test_stem.color, 2);
+        plot_quad_bezier((int)(n->point).x, (int)(n->point).y, 
+                         (int)(n->next->bez_ctr_point).x, (int)(n->next->bez_ctr_point).y,
+                         (int)(n->next->point).x, (int)(n->next->point).y,
+                         test_stem.color);
+        n = n->next;
+    }
+}
+
+
+void update_old_stem_points (Stem_List *list) 
+{
+    Stem_Node *n = list->head;
+	while (n != NULL) {
+        n->old_point.x = n->point.x;
+        n->old_point.y = n->point.y;
+        n->old_bez_point.x = n->bez_ctr_point.x;
+        n->old_bez_point.y = n->bez_ctr_point.y;
+
+        n = n->next;
+    }
+}
+
+void move_point_in_vec_field (Moving_Point *point, double dir_factor) 
+{
+    // if at bounds, reverse direction
+    if (point->x <= 0 || point->x >= RESOLUTION_X)
+        point->reverse_x *= -1;
+    if (point->y <= 0 || point->y >= RESOLUTION_Y)
+        point->reverse_y *= -1; 
+    point->x += SPEED_SCALE * point->x_dir * point->reverse_x;
+    point->y += SPEED_SCALE * point->y_dir * point->reverse_y;
+
+    // if would be beyond bounds, fix within bounds
+    if (point->x < 0) point->x = 0;
+    if (point->y < 0) point->y = 0;
+
+    // change direction using vector field
+    D_Point dir = vector_field(point->x, point->y, gTime);
+    point->x_dir = dir_factor * dir.x;
+    point->y_dir = dir_factor * dir.y;
+}
+
+void move_stem_points (Stem_List *list) 
+{
+    Stem_Node *n = list->head;
+	while (n != NULL) {
+        double dir_factor = (list->length < list->length_lim && n == list->tail) ? 1 : 0.1;
+
+        move_point_in_vec_field(&(n->point), dir_factor);
+        // if tail still growing, do not move its Bezier control point
+        // if tail stopped growing, move its Bezier control point with the others
+        if (n->next != NULL || list->length >= list->length_lim)
+            move_point_in_vec_field(&(n->bez_ctr_point), dir_factor);
+
+        n = n->next;
+    }
+}
+
+void store_grow_position (Stem_List *list, int d_node_time, int bez_time_div) 
+{
+    for (int i = BEZ_CHANGE_FREQ; i > BEZ_DIV_LIM; --i) {
+        if (list->head == list->tail)
+            break;
+        if (d_node_time > i*(bez_time_div/2))
+            break;
+        if (d_node_time < (i-1)*(bez_time_div/2)) // if less than previous division, skip
+            continue;
+        list->grow_ctr_points[i - 1 - BEZ_DIV_LIM].x = list->tail->point.x;
+        list->grow_ctr_points[i - 1 - BEZ_DIV_LIM].y = list->tail->point.y;
+    }
+}
+
+void set_grow_bez_point (Stem_List *list, int d_node_time, int bez_time_div) 
+{
+    for (int i = BEZ_CHANGE_FREQ; i > BEZ_DIV_LIM; --i) {
+        if (list->head == list->tail)
+            break;
+        if (d_node_time > i*bez_time_div) // if more than current division, done
+            break;
+        if (d_node_time < (i-1)*bez_time_div) // if less than previous division, skip
+            continue;
+        
+        Stem_Node *pre_tail = list->head;
+        while (pre_tail != NULL && pre_tail->next != list->tail) {
+            pre_tail = pre_tail->next;
+        }
+
+        double time_ratio = (double)(i*(bez_time_div/2)) / (double)d_node_time;
+
+        D_Point new_bez_point = bez_ctr_from_curve(pre_tail->point.x, pre_tail->point.y,
+                                                   list->grow_ctr_points[i - 1 - BEZ_DIV_LIM].x, 
+                                                   list->grow_ctr_points[i - 1 - BEZ_DIV_LIM].y,
+                                                   list->tail->point.x, list->tail->point.y, time_ratio);
+        list->tail->bez_ctr_point.x = new_bez_point.x;
+        list->tail->bez_ctr_point.y = new_bez_point.y;
+        list->tail->bez_ctr_time = gTime;
+    }
+}
+
+void update_growing_stem_bez_point (Stem_List *list) 
+{
+    if (list->length < list->length_lim) { // if still growing
+        int d_node_time = gTime - list->tail->creation_time; // time the node has existed for
+        // fraction of time over which there is a constant point to determine the Bezier control point
+        int bez_time_div = list->growth_period/BEZ_CHANGE_FREQ;
+
+        // determine stored growth point position values for Bezier control point in stem
+        store_grow_position(list, d_node_time, bez_time_div);
+
+        // use stored values to calculate Bezier control point for growth point
+        set_grow_bez_point(list, d_node_time, bez_time_div);
+    }
+}
+
+void branch_stem (Stem_List *list) 
+{
+    Stem_Node *n = list->head;
+    if (n != NULL)
+        n = n->next; // do not branch from head
+
+	while (n != NULL && n->next != NULL) { // do not branch from tail
+        if (n->branchable == TRUE && n->branching_stem == NULL) { // if no branching stem but can branch
+            if (gTime - n->next->creation_time >= n->branch_period) {
+                Stem_List * new_list = (Stem_List*) malloc(sizeof(Stem_List));
+                if (new_list == NULL) // check if enough memory to allocate
+                    return;
+                init_stem_list(new_list, n->point.x, n->point.y, list->color, list->num_branches + 1);
+                add_stem_node(new_list, n->point.x, n->point.y, INVALID_POS, INVALID_POS, n->point.reverse_x, n->point.reverse_y);
+                
+                n->branching_stem = new_list;
+            }
+        }
+
+        n = n->next;
+    }
+}
+
+void draw_branching_stems_rec (Stem_List *list)
+{
+    Stem_Node *n = list->head;
+    if (n != NULL)
+        n = n->next; // do not branch from head
+	while (n != NULL && n->next != NULL) {
+        if (n->branchable == TRUE && n->branching_stem != NULL) {
+            draw_stem (n->branching_stem);
+        }
+
+        n = n->next;
+    }
+}
+
+void draw_stem (Stem_List *list)
+{
+   
+    add_new_stem_node(list); // add new nodes
+    branch_stem(list); // add new stems branching off current stem
+    draw_branching_stems_rec(list); // go through list and draw other stems in list, recursively
+    draw_old_stem_nodes(list, BLACK); // clear stem drawing
+    update_old_stem_points(list); // update old points
+    move_stem_points(list); // move points of stem
+    update_growing_stem_bez_point(list); // set new Bezier curve control point for growing point
+    draw_stem_nodes(list, list->color); /// draw stem
+
 }
 
 
@@ -976,6 +1127,15 @@ D_Point bez_ctr_from_curve (double x0, double y0, double xt, double yt, double x
     P1.x = x1;
     P1.y = y1;
     return P1;
+}
+
+D_Point vector_field (double x, double y, double time) {
+    D_Point point;
+    //point.x = 0.5 * sin((x + y)/FIELD_SCALE) - cos(time/(FIELD_SCALE));
+    //point.y = - 0.5 * cos((x + y)/FIELD_SCALE) + sin(time/(FIELD_SCALE));
+    point.x = sin((sin(time/FIELD_SCALE/4)*x + sin(time/FIELD_SCALE)*y)/FIELD_SCALE);
+    point.y = -cos((cos(time/FIELD_SCALE)*x + cos(time/FIELD_SCALE/4)*y)/FIELD_SCALE);
+    return point;
 }
 
 // Swaps the first and second integers using a temporary variable
