@@ -133,7 +133,8 @@ typedef struct Flower_Info {
     int y;
     int x_dir;              // directions, either -1 or 1
     int y_dir;
-    short int color;        // colour
+    short int petal_color;  // colours
+    short int center_color;
     short int size;         // size (number of petals)
 } Flower_Info;
 
@@ -142,7 +143,8 @@ typedef struct Rand_Flower_Info {
     double y;
     double x_dir;           // directions, either -1 or 1
     double y_dir;
-    short int color;        // colour
+    short int petal_color;  // colours
+    short int center_color;
     short int size;         // size (number of petals)
     int reverse_x;
     int reverse_y;
@@ -273,7 +275,7 @@ void move_flowers();
 void update_old_flowers();
 void clear_flowers();
 void draw_all_flowers();
-void draw_flower(int x, int y, short int color, short int size);
+void draw_flower(int x, int y, short int petal_color, short int center_color, short int size);
 
 /* Draw simple shapes and lines */
 void plot_pixel(int x, int y, short int line_color);
@@ -361,7 +363,7 @@ void draw_rand_point () {
     rand_box.y_dir = dir.y;
 
     //draw_box((int)rand_box.x, (int)rand_box.y, rand_box.color, 5);
-    draw_flower((int)rand_box.x, (int)rand_box.y, rand_box.color, 5);
+    draw_flower((int)rand_box.x, (int)rand_box.y, rand_box.color,  rand_box.color, 5);
     plot_quad_bezier((int)initial_point.x, (int)initial_point.y, 
                      (int)initial_point.x, (int)rand_box.y,
                      (int)rand_box.x, (int)rand_box.y,
@@ -863,7 +865,8 @@ void init_flowers (){
         flowers[i].y = rand() % RESOLUTION_Y;
         flowers[i].x_dir = rand() % 2 * 2 - 1;
         flowers[i].y_dir = rand() % 2 * 2 - 1;
-        flowers[i].color = (short int)(rand() % 0xFFFF);
+        flowers[i].petal_color = (short int)(rand() % 0xFFFF);
+        flowers[i].center_color = (short int)(rand() % 0xFFFF);
         flowers[i].size = 0;
     }
 }
@@ -891,72 +894,72 @@ void update_old_flowers (){
 
 void clear_flowers() {
     for (int i = 0; i < num_old_flowers; ++i) {
-        draw_flower(old_flowers[i].x, old_flowers[i].y, BLACK, old_flowers[i].size);
+        draw_flower(old_flowers[i].x, old_flowers[i].y, BLACK, BLACK, old_flowers[i].size);
     }
 }
 
 void draw_all_flowers() {
     for (int i = 0; i < num_curr_flowers; ++i) {
-        draw_flower(flowers[i].x, flowers[i].y, flowers[i].color, flowers[i].size);
+        draw_flower(flowers[i].x, flowers[i].y, flowers[i].petal_color, flowers[i].center_color, flowers[i].size);
     }
 }
 
-void draw_flower(int x, int y, short int color, short int size) {
+void draw_flower(int x, int y, short int petal_color, short int center_color, short int size) {
 	int radius = 5;
 
     // draw the petals
     if (size >= 5) { // fifth layer of petals
-        plot_ellipse(x + 7, y + 18, radius + 3, radius + 3, YELLOW);
-        plot_ellipse(x - 7, y + 18, radius + 3, radius + 3, YELLOW);
-        plot_ellipse(x + 7, y - 18, radius + 3, radius + 3, YELLOW);
-        plot_ellipse(x - 7, y - 18, radius + 3, radius + 3, YELLOW);
+        plot_ellipse(x + 7, y + 18, radius + 3, radius + 3, petal_color);
+        plot_ellipse(x - 7, y + 18, radius + 3, radius + 3, petal_color);
+        plot_ellipse(x + 7, y - 18, radius + 3, radius + 3, petal_color);
+        plot_ellipse(x - 7, y - 18, radius + 3, radius + 3, petal_color);
 
-        plot_ellipse(x + 18, y + 7, radius + 3, radius + 3, YELLOW);
-        plot_ellipse(x - 18, y + 7, radius + 3, radius + 3, YELLOW);
-        plot_ellipse(x + 18, y - 7, radius + 3, radius + 3, YELLOW);
-        plot_ellipse(x - 18, y - 7, radius + 3, radius + 3, YELLOW);
+        plot_ellipse(x + 18, y + 7, radius + 3, radius + 3, petal_color);
+        plot_ellipse(x - 18, y + 7, radius + 3, radius + 3, petal_color);
+        plot_ellipse(x + 18, y - 7, radius + 3, radius + 3, petal_color);
+        plot_ellipse(x - 18, y - 7, radius + 3, radius + 3, petal_color);
     }
 
     if (size >= 4) { // fourth layer of petals
-        plot_ellipse(x + 3 * radius, y, radius + 1, radius + 1, YELLOW);
-        plot_ellipse(x - 3 * radius, y, radius + 1, radius + 1, YELLOW);
-        plot_ellipse(x, y + 3 * radius, radius + 1, radius + 1, YELLOW);
-        plot_ellipse(x, y - 3 * radius, radius + 1, radius + 1, YELLOW);
+        plot_ellipse(x + 3 * radius, y, radius + 1, radius + 1, petal_color);
+        plot_ellipse(x - 3 * radius, y, radius + 1, radius + 1, petal_color);
+        plot_ellipse(x, y + 3 * radius, radius + 1, radius + 1, petal_color);
+        plot_ellipse(x, y - 3 * radius, radius + 1, radius + 1, petal_color);
 
-        plot_ellipse(x + 2 * radius, y + 2 * radius, radius + 1, radius + 1, YELLOW);
-        plot_ellipse(x - 2 * radius, y + 2 * radius, radius + 1, radius + 1, YELLOW);
-        plot_ellipse(x + 2 * radius, y - 2 * radius, radius + 1, radius + 1, YELLOW);
-        plot_ellipse(x - 2 * radius, y - 2 * radius, radius + 1, radius + 1, YELLOW);
+        plot_ellipse(x + 2 * radius, y + 2 * radius, radius + 1, radius + 1, petal_color);
+        plot_ellipse(x - 2 * radius, y + 2 * radius, radius + 1, radius + 1, petal_color);
+        plot_ellipse(x + 2 * radius, y - 2 * radius, radius + 1, radius + 1, petal_color);
+        plot_ellipse(x - 2 * radius, y - 2 * radius, radius + 1, radius + 1, petal_color);
     }
 
     if (size >= 3) { // third layer of petals
-        plot_ellipse(x + 4, y + 2 * radius, radius, radius, YELLOW);
-        plot_ellipse(x - 4, y + 2 * radius, radius, radius, YELLOW);
-        plot_ellipse(x + 4, y - 2 * radius, radius, radius, YELLOW);
-        plot_ellipse(x - 4, y - 2 * radius, radius, radius, YELLOW);
+        plot_ellipse(x + 4, y + 2 * radius, radius, radius, petal_color);
+        plot_ellipse(x - 4, y + 2 * radius, radius, radius, petal_color);
+        plot_ellipse(x + 4, y - 2 * radius, radius, radius, petal_color);
+        plot_ellipse(x - 4, y - 2 * radius, radius, radius, petal_color);
 
-        plot_ellipse(x + 2 * radius, y + 4, radius, radius, YELLOW);
-        plot_ellipse(x - 2 * radius, y + 4, radius, radius, YELLOW);
-        plot_ellipse(x + 2 * radius, y - 4, radius, radius, YELLOW);
-        plot_ellipse(x - 2 * radius, y - 4, radius, radius, YELLOW);
+        plot_ellipse(x + 2 * radius, y + 4, radius, radius, petal_color);
+        plot_ellipse(x - 2 * radius, y + 4, radius, radius, petal_color);
+        plot_ellipse(x + 2 * radius, y - 4, radius, radius, petal_color);
+        plot_ellipse(x - 2 * radius, y - 4, radius, radius, petal_color);
     }
 
     if (size >= 2) { // second layer of petals
-        plot_ellipse(x + 8, y, radius, radius, YELLOW);
-        plot_ellipse(x - 8, y, radius, radius, YELLOW);
-        plot_ellipse(x, y + 8, radius, radius, YELLOW);
-        plot_ellipse(x, y - 8, radius, radius, YELLOW);
+        plot_ellipse(x + 8, y, radius, radius, petal_color);
+        plot_ellipse(x - 8, y, radius, radius, petal_color);
+        plot_ellipse(x, y + 8, radius, radius, petal_color);
+        plot_ellipse(x, y - 8, radius, radius, petal_color);
     }
 
     if (size >= 1) { // first layer of petals
-        plot_ellipse(x + radius, y + radius, radius, radius, YELLOW);
-        plot_ellipse(x - radius, y + radius, radius, radius, YELLOW);
-        plot_ellipse(x + radius, y - radius, radius, radius, YELLOW);
-        plot_ellipse(x - radius, y - radius, radius, radius, YELLOW);
+        plot_ellipse(x + radius, y + radius, radius, radius, petal_color);
+        plot_ellipse(x - radius, y + radius, radius, radius, petal_color);
+        plot_ellipse(x + radius, y - radius, radius, radius, petal_color);
+        plot_ellipse(x - radius, y - radius, radius, radius, petal_color);
     }
 
     // draw center of the flower
-    plot_ellipse(x, y, 4, 4, color);
+    plot_ellipse(x, y, 4, 4, center_color);
 }
 
 /* Draw simple shapes and lines */
@@ -1247,7 +1250,8 @@ void interval_timer_ISR(void)
     volatile int * interval_timer_ptr = (int *)TIMER_BASE;
     *(interval_timer_ptr) = 0; // clear the interrupt
 
-    ++gTime;
+    
+    ++gTime; //timerSpeed
 }
 
 void pushbutton_ISR(void) 
