@@ -97,6 +97,18 @@
 #define REPEL_RANGE 12 // how far a stem can be affected by repelling
 #define REPEL_STRENGTH 1.5 // fastest speed change that repelling can cause
 
+/* Color constants */
+#define MAX_RED_BLUE 0b11111 // 31
+#define MAX_GREEN 0b111111 // 63
+#define MIN_RGB 0
+
+#define STEM_MIN_RED 0
+#define STEM_MAX_RED 15
+#define STEM_MIN_GREEN 31
+#define STEM_MAX_GREEN 63
+#define STEM_MIN_BLUE 0
+#define STEM_MAX_BLUE 10
+
 /* Boolean constants */
 #define FALSE 0
 #define TRUE 1
@@ -185,7 +197,9 @@ typedef struct Stem_List {
     int growth_period;
     D_Point grow_ctr_points[BEZ_CHANGE_FREQ - BEZ_DIV_LIM]; // points for growing node bezier curve
     int num_branches;
-    int flower_size;
+    short int max_flower_size;
+    short int curr_flower_size;
+    short int old_flower_size;
     short int color;
     Stem_Node * head;
     Stem_Node * tail;
@@ -314,7 +328,49 @@ void set_flower_size (Stem_List *list)
 {
     if (list->length < list->length_lim) { return; } // if still growing, no flower
 
-    list->flower_size = average_surround(list->tail->point.x, list->tail->point.y, FLOWER_SIZE_RANGE);
+    if (list->max_flower_size == INVALID_VAL)
+        list->max_flower_size = average_surround(list->tail->point.x, list->tail->point.y, FLOWER_SIZE_RANGE);
+    else if (list->curr_flower_size != list->max_flower_size)
+        list->curr_flower_size = list->curr_flower_size + 1;
+}
+
+void update_flower_size (Stem_List *list)
+{
+    if (list->old_flower_size == list->max_flower_size)
+        return;
+    list->old_flower_size = list->curr_flower_size;
+}
+
+// returns a random colour based on parameters limiting the amount of red, green, and blue, 
+// the minimum amount for each is 0, the maximum red and blue input is 31, maximum green input is 63
+short int randomize_color (short int min_red, short int max_red, short int min_green, short int max_green, short int min_blue, short int max_blue)
+{
+    short int red = rand() % (max_red - min_red + 1) + min_red; // bits 15 - 11
+    short int green = rand() % (max_green - min_green + 1) + min_green; // bits 10 - 5
+    short int blue = rand() % (max_blue - min_blue + 1) + min_blue; // bits 4 - 0
+
+    short int color = (red << 11) + (green << 5) + blue;
+    return color;
+}
+
+void draw_stem_flower (Stem_List *list, short int petal_color, short int center_color, short int flower_size)
+{
+    if (list->length < list->length_lim) { return; } // if still growing, no flower
+
+    Moving_Point point = list->tail->point;
+    short int size;
+    if (flower_size < 20)
+        draw_flower(point.x, point.y, petal_color, petal_color, 0);
+    else if (flower_size < 22)
+        draw_flower(point.x, point.y, petal_color, center_color, 1);
+    else if (flower_size < 23)
+        draw_flower(point.x, point.y, petal_color, center_color, 2);
+    else if (flower_size < 24)
+        draw_flower(point.x, point.y, petal_color, center_color, 3);
+    else if (flower_size < 25)
+        draw_flower(point.x, point.y, petal_color, center_color, 4);
+    else
+        draw_flower(point.x, point.y, petal_color, center_color, 5);
 }
 
 
@@ -326,7 +382,7 @@ void init_stem ()
     int start_x = rand() % RESOLUTION_X;
     int start_y = rand() % RESOLUTION_Y;
 
-    init_stem_list(&test_stem, start_x, start_y, (short int)(rand() % 0xFFFF), 0);
+    init_stem_list(&test_stem, start_x, start_y, randomize_color(STEM_MIN_RED, STEM_MAX_RED, STEM_MIN_GREEN, STEM_MAX_GREEN, STEM_MIN_BLUE, STEM_MAX_BLUE), 0);
     
     add_stem_node(&test_stem, start_x, start_y, INVALID_VAL, INVALID_VAL, 1, 1);
 }
@@ -403,7 +459,9 @@ void init_stem_list (Stem_List *list, double x, double y, int color, int num_bra
         (list->grow_ctr_points[i]).y = y;
     }
     list->num_branches = num_branches;
-    list->flower_size = INVALID_VAL;
+    list->max_flower_size = INVALID_VAL;
+    list->curr_flower_size = INVALID_VAL;
+    list->old_flower_size = INVALID_VAL;
 
     list->color = color;
     list->head = NULL;
@@ -706,10 +764,14 @@ void draw_stem (Stem_List *list)
     branch_stem(list); // add new stems branching off current stem
     draw_branching_stems_rec(list); // go through list and draw other stems in list, recursively
     draw_old_stem_nodes(list, BLACK); // clear stem drawing
+    draw_stem_flower(list, BLACK, BLACK, list->old_flower_size);
     update_old_stem_points(list); // update old points
     move_stem_points(list); // move points of stem
     update_growing_stem_bez_point(list); // set new Bezier curve control point for growing point
+    update_flower_size (list); // update old flower size
+    set_flower_size (list); // set flower size of stem based on room available
     draw_stem_nodes(list, list->color); /// draw stem
+    draw_stem_flower(list, YELLOW, BLACK, list->curr_flower_size);
 }
 
 
