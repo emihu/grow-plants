@@ -63,7 +63,7 @@
 /* Screen size */
 #define RESOLUTION_X          320
 #define RESOLUTION_Y          240
-#define INVALID_POS           -1
+#define INVALID_VAL           -1
 
 /* Constants for animation */
 #define BOX_LEN 2
@@ -133,8 +133,7 @@ typedef struct Flower_Info {
     int y;
     int x_dir;              // directions, either -1 or 1
     int y_dir;
-    short int petal_color;  // colours
-    short int center_color;
+    short int color;        // colour
     short int size;         // size (number of petals)
 } Flower_Info;
 
@@ -143,8 +142,7 @@ typedef struct Rand_Flower_Info {
     double y;
     double x_dir;           // directions, either -1 or 1
     double y_dir;
-    short int petal_color;  // colours
-    short int center_color;
+    short int color;        // colour
     short int size;         // size (number of petals)
     int reverse_x;
     int reverse_y;
@@ -187,6 +185,7 @@ typedef struct Stem_List {
     int growth_period;
     D_Point grow_ctr_points[BEZ_CHANGE_FREQ - BEZ_DIV_LIM]; // points for growing node bezier curve
     int num_branches;
+    int flower_size;
     short int color;
     Stem_Node * head;
     Stem_Node * tail;
@@ -271,22 +270,24 @@ D_Point vector_field (double x, double y, double time);
 D_Point bez_ctr_from_curve (double x0, double y0, double xt, double yt, double x2, double y2, double tr);
 
 
+#define FLOWER_SIZE_RANGE 20
+
 void find_surround (int x, int y, int range, int *left_dist, int *right_dist, int *up_dist, int *down_dist) 
 {
     // closest point left, right, up, and down of the given point
-    *left_dist = INVALID_POS;
-    *right_dist = INVALID_POS;
-    *up_dist = INVALID_POS;
-    *down_dist = INVALID_POS;
+    *left_dist = INVALID_VAL;
+    *right_dist = INVALID_VAL;
+    *up_dist = INVALID_VAL;
+    *down_dist = INVALID_VAL;
 
     for (int i = 1; i < range; ++i) {
-        if ((*left_dist == INVALID_POS) && (get_pixel(x - i, y) != BLACK || x - i < 0))
+        if ((*left_dist == INVALID_VAL) && (get_pixel(x - i, y) != BLACK || x - i < 0))
             *left_dist = i;
-        if ((*right_dist == INVALID_POS) && (get_pixel(x + i, y) != BLACK || x + i > RESOLUTION_X))
+        if ((*right_dist == INVALID_VAL) && (get_pixel(x + i, y) != BLACK || x + i > RESOLUTION_X))
             *right_dist = i;
-        if ((*up_dist == INVALID_POS) && (get_pixel(x, y - i) != BLACK || x - i < 0))
+        if ((*up_dist == INVALID_VAL) && (get_pixel(x, y - i) != BLACK || x - i < 0))
             *up_dist = i;
-        if ((*down_dist == INVALID_POS) && (get_pixel(x, y + i) != BLACK || x + i > RESOLUTION_Y))
+        if ((*down_dist == INVALID_VAL) && (get_pixel(x, y + i) != BLACK || x + i > RESOLUTION_Y))
             *down_dist = i;
     }
 }
@@ -297,21 +298,23 @@ double average_surround (int x, int y, int range)
     int left_dist, right_dist, up_dist, down_dist;
     find_surround(x, y, range, &left_dist, &right_dist, &up_dist, &down_dist);
 
-    if (left_dist == INVALID_POS) 
+    if (left_dist == INVALID_VAL) 
         left_dist = range;
-    if (right_dist == INVALID_POS) 
+    if (right_dist == INVALID_VAL) 
         right_dist = range;
-    if (up_dist == INVALID_POS) 
+    if (up_dist == INVALID_VAL) 
         up_dist = range;
-    if (down_dist == INVALID_POS) 
+    if (down_dist == INVALID_VAL) 
         down_dist = range;
 
     return (double)(left_dist + right_dist + up_dist + down_dist) / 3.0;
 }
 
-void set_flower_size ()
+void set_flower_size (Stem_List *list)
 {
-    
+    if (list->length < list->length_lim) { return; } // if still growing, no flower
+
+    list->flower_size = average_surround(list->tail->point.x, list->tail->point.y, FLOWER_SIZE_RANGE);
 }
 
 
@@ -325,75 +328,10 @@ void init_stem ()
 
     init_stem_list(&test_stem, start_x, start_y, (short int)(rand() % 0xFFFF), 0);
     
-    add_stem_node(&test_stem, start_x, start_y, INVALID_POS, INVALID_POS, 1, 1);
+    add_stem_node(&test_stem, start_x, start_y, INVALID_VAL, INVALID_VAL, 1, 1);
 }
 
 
-<<<<<<< HEAD
-Moving_Point rand_box;
-Moving_Point old_rand_box;
-D_Point initial_point;
-
-void init_rand_point () {
-    rand_box.x = rand() % RESOLUTION_X;
-    rand_box.y = rand() % RESOLUTION_Y;
-    D_Point dir = vector_field(rand_box.x, rand_box.y, gTime);
-    rand_box.x_dir = dir.x;
-    rand_box.y_dir = dir.y;
-    rand_box.color = (short int)(rand() % 0xFFFF);
-    rand_box.reverse_x = 1;
-    rand_box.reverse_y = 1;
-
-    old_rand_box.x = rand_box.x;
-    old_rand_box.y = rand_box.y;
-    old_rand_box.x_dir = 0;
-    old_rand_box.y_dir = 0;
-    old_rand_box.color = BLACK;
-    old_rand_box.reverse_x = 0;
-    old_rand_box.reverse_y = 0;
-
-    initial_point.x = rand_box.x;
-    initial_point.y = rand_box.y;
-}
-void draw_rand_point () {
-    // clear box
-	draw_box((int)old_rand_box.x - 9, (int)old_rand_box.y - 9, 
-             old_rand_box.color, 18);
-    plot_quad_bezier((int)initial_point.x, (int)initial_point.y, 
-                     (int)initial_point.x, (int)old_rand_box.y,
-                     (int)old_rand_box.x, (int)old_rand_box.y,
-                     old_rand_box.color);
-
-    // update old box
-    old_rand_box.x = rand_box.x;
-    old_rand_box.y = rand_box.y;
-    
-    // move box
-    if (rand_box.x <= 0 || rand_box.x >= RESOLUTION_X)
-        rand_box.reverse_x *= -1;
-    if (rand_box.y <= 0 || rand_box.y >= RESOLUTION_Y)
-        rand_box.reverse_y *= -1; 
-    rand_box.x += SPEED_SCALE * rand_box.x_dir * rand_box.reverse_x;
-    rand_box.y += SPEED_SCALE * rand_box.y_dir * rand_box.reverse_y;
-
-    if (rand_box.x < 0) rand_box.x = 0;
-    if (rand_box.y < 0) rand_box.y = 0;
-
-    // change direction
-    D_Point dir = vector_field(rand_box.x, rand_box.y, gTime);
-    rand_box.x_dir = dir.x;
-    rand_box.y_dir = dir.y;
-
-    //draw_box((int)rand_box.x, (int)rand_box.y, rand_box.color, 5);
-    draw_flower((int)rand_box.x, (int)rand_box.y, rand_box.color,  rand_box.color, 5);
-    plot_quad_bezier((int)initial_point.x, (int)initial_point.y, 
-                     (int)initial_point.x, (int)rand_box.y,
-                     (int)rand_box.x, (int)rand_box.y,
-                     rand_box.color);
-}
-
-=======
->>>>>>> 398364a (Determine a flower size for ends of stems)
 /*
  * FUNCTION DEFINITIONS
  */
@@ -465,6 +403,7 @@ void init_stem_list (Stem_List *list, double x, double y, int color, int num_bra
         (list->grow_ctr_points[i]).y = y;
     }
     list->num_branches = num_branches;
+    list->flower_size = INVALID_VAL;
 
     list->color = color;
     list->head = NULL;
@@ -737,7 +676,7 @@ void branch_stem (Stem_List *list)
                 if (new_list == NULL) // check if enough memory to allocate
                     return;
                 init_stem_list(new_list, n->point.x, n->point.y, list->color, list->num_branches + 1);
-                add_stem_node(new_list, n->point.x, n->point.y, INVALID_POS, INVALID_POS, n->point.reverse_x, n->point.reverse_y);
+                add_stem_node(new_list, n->point.x, n->point.y, INVALID_VAL, INVALID_VAL, n->point.reverse_x, n->point.reverse_y);
                 
                 n->branching_stem = new_list;
             }
@@ -775,56 +714,7 @@ void draw_stem (Stem_List *list)
 
 
 /* Draw and animate flowers */
-<<<<<<< HEAD
-void init_flowers (){
-    for (int i = num_curr_flowers; i < num_flowers; ++i) {
-        flowers[i].x = rand() % RESOLUTION_X;
-        flowers[i].y = rand() % RESOLUTION_Y;
-        flowers[i].x_dir = rand() % 2 * 2 - 1;
-        flowers[i].y_dir = rand() % 2 * 2 - 1;
-        flowers[i].petal_color = (short int)(rand() % 0xFFFF);
-        flowers[i].center_color = (short int)(rand() % 0xFFFF);
-        flowers[i].size = 0;
-    }
-}
-
-void move_flowers (){
-    for (int i = 0; i < num_flowers; ++i) {
-        if (flowers[i].x <= 0 || flowers[i].x >= RESOLUTION_X)
-            flowers[i].x_dir *= -1;
-        if (flowers[i].y <= 0 || flowers[i].y >= RESOLUTION_Y)
-            flowers[i].y_dir *= -1; 
-
-        flowers[i].x += flowers[i].x_dir;
-        flowers[i].y += flowers[i].y_dir;
-    }
-    num_curr_flowers = num_flowers;
-}
-
-void update_old_flowers (){
-    for (int i = 0; i < num_curr_flowers; ++i) {
-        old_flowers[i].x = flowers[i].x;
-        old_flowers[i].y = flowers[i].y;
-    }
-    num_old_flowers = num_curr_flowers;
-}
-
-void clear_flowers() {
-    for (int i = 0; i < num_old_flowers; ++i) {
-        draw_flower(old_flowers[i].x, old_flowers[i].y, BLACK, BLACK, old_flowers[i].size);
-    }
-}
-
-void draw_all_flowers() {
-    for (int i = 0; i < num_curr_flowers; ++i) {
-        draw_flower(flowers[i].x, flowers[i].y, flowers[i].petal_color, flowers[i].center_color, flowers[i].size);
-    }
-}
-
 void draw_flower(int x, int y, short int petal_color, short int center_color, short int size) {
-=======
-void draw_flower(int x, int y, short int color, short int size) {
->>>>>>> 398364a (Determine a flower size for ends of stems)
 	int radius = 5;
 
     // draw the petals
@@ -1161,8 +1051,7 @@ void interval_timer_ISR(void)
     volatile int * interval_timer_ptr = (int *)TIMER_BASE;
     *(interval_timer_ptr) = 0; // clear the interrupt
 
-    
-    ++gTime; //timerSpeed
+    ++gTime;
 }
 
 void pushbutton_ISR(void) 
