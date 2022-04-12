@@ -41,9 +41,13 @@
 /* IRQ interrupt IDs */
 #define INTERVAL_TIMER_IRQ    72
 #define KEYS_IRQ              73
+#define PS2_IRQ               79
 
 /* Load value for A9 Private Timer */
 #define TIMER_LOAD            10000000       // 1/(100 MHz) x 1x10^7 = 0.1 sec
+
+/* PS/2 Port */
+#define PS2_BASE              0xFF200100
 
 /* VGA colors */
 #define WHITE                 0xFFFF
@@ -221,13 +225,16 @@ volatile int pixel_buffer_start;
 /* Set up interrupts */
 void set_A9_IRQ_stack(void);
 void config_GIC(void);
+void config_interrupt(int N, int CPU_target);
 void config_interval_timer(void);
 void config_KEYs(void);
+void config_PS2(void);
 void enable_A9_interrupts(void);
 
 /* Interrupt service routines */
 void interval_timer_ISR(void);
 void pushbutton_ISR(void);
+void PS2_ISR(void);
 
 /* Set up and manage pixel buffers */
 void set_pixel_buffers(void);
@@ -398,34 +405,14 @@ int main(void)
     volatile int * pixel_ctrl_ptr = (int *)PIXEL_BUF_CTRL_BASE;
     volatile int * SW_ptr = (int *)SW_BASE;
 
-<<<<<<< HEAD
-=======
     // initialize speed
     speed = 1;
 
-    // initialize number of boxes
-    num_curr_boxes = 0;
-    num_boxes = *SW_ptr;
-    if (num_boxes > SW_MAX)
-        num_boxes = SW_MAX;
-
-    // initialize number of flowers
-    num_curr_flowers = 0;
-    num_flowers = *SW_ptr;
-    if (num_flowers > SW_MAX)
-        num_flowers = SW_MAX;
-
-    // initialize location and direction of rectangles
-    init_boxes();
-
-    // initialize location and direction of flowers
-    init_flowers();
-
->>>>>>> d069a9a (Add some functions to execute when a button is pressed (still work in progress, not all buttons are done))
     set_A9_IRQ_stack();      // initialize the stack pointer for IRQ mode
     config_GIC();            // configure the general interrupt controller
     config_interval_timer(); // configure interval timer to generate interrupts
     config_KEYs();           // configure pushbutton KEYs to generate interrupts
+    config_PS2();            // configure mouse input (PS2) to generate interrupts
     
     enable_A9_interrupts();  // enable interrupts
 
@@ -1048,12 +1035,13 @@ void plot_quad_bezier(int x0, int y0, int x1, int y1, int x2, int y2, short int 
 
 void change_colors()
 {
+    /*
     for (int i = 0; i < sizeof(flowers)/sizeof(flowers[0]); i++) {
         flowers[i].petal_color = (short int)(rand() % 0xFFFF);
         flowers[i].center_color = (short int)(rand() % 0xFFFF);
         old_flowers[i].petal_color = flowers[i].petal_color;
         old_flowers[i].center_color = flowers[i].center_color;
-    }
+    }*/
 }
 
 void clear_screen()
@@ -1148,13 +1136,8 @@ void interval_timer_ISR(void)
     // interal timer base address
     volatile int * interval_timer_ptr = (int *)TIMER_BASE;
     *(interval_timer_ptr) = 0; // clear the interrupt
-<<<<<<< HEAD
-
-    ++gTime;
-=======
     
     gTime += speed;
->>>>>>> d069a9a (Add some functions to execute when a button is pressed (still work in progress, not all buttons are done))
 }
 
 void pushbutton_ISR(void) 
@@ -1191,6 +1174,29 @@ void pushbutton_ISR(void)
     }
 }
 
+void PS2_ISR(void)
+{
+    printf ("mouse clicked\n");
+    // PS2 base address
+    volatile int * PS2_ptr = (int *) PS2_BASE;
+
+    *(PS2_ptr + 1) = 0x1; // clear the interrupt
+
+    int PS2_data, RVALID;
+    char mouse;
+
+    while(1) {
+        PS2_data = *(PS2_ptr); // read the Data register in the PS/2 port
+        RVALID = PS2_data & 0x8000; // extract the RVALID field
+
+        if (RVALID) {
+            mouse = PS2_data & 0xFF;
+        }
+        else {
+            break;
+        }
+    }
+}
 
 /* Set up interrupts, 
  * from the Intel® FPGA University Program DE1-SoC Computer Manual */
@@ -1216,9 +1222,12 @@ void config_GIC(void)
 {
     int address; // used to calculate register addresses
 
-    /* configure the FPGA interval timer and KEYs interrupts */
+    /* Configure the FPGA interval timer and KEYs interrupts */
     *((int *)0xFFFED848) = 0x00000101;
     *((int *)0xFFFED108) = 0x00000300;
+
+    /* Configure the PS2 interrupt */
+    config_interrupt (79, 1);
 
     // Set Interrupt Priority Mask Register (ICCPMR) and
     // Enable interrupts of all priorities
@@ -1234,6 +1243,37 @@ void config_GIC(void)
     // interrupts to CPUs
     address = MPCORE_GIC_DIST + ICDDCR;
     *((int *)address) = ENABLE;
+}
+
+/*
+ * Configure Set Enable Registers (ICDISERn) and Interrupt Processor Target Registers (ICDIPTRn).
+ * The default (reset) values are used for other registers in the GIC.
+ * From the Using the ARM Generic Interrupt Controller Manual
+ */
+void config_interrupt(int N, int CPU_target)
+{
+    int reg_offset, index, value, address;
+
+    /* Configure the Interrupt Set-Enable Registers (ICDISERn).
+     * reg_offset = (integer_div(N / 32) * 4
+     * value = 1 << (N mod 32) */
+    reg_offset = (N >> 3) & 0xFFFFFFFC;
+    index = N & 0x1F;
+    value = 0x1 << index;
+    address = 0xFFFED100 + reg_offset;
+
+    /* Now that we know the register address and value, set the appropriate bit */
+    *(int *)address |= value;
+
+    /* Configure the Interrupt Processor Targets Register (ICDIPTRn)
+     * reg_offset = integer_div(N / 4) * 4
+     * index = N mod 4 */
+    reg_offset = (N & 0xFFFFFFFC);
+    index = N & 0x3;
+    address = 0xFFFED800 + reg_offset + index;
+
+    /* Now that we know the register address and value, write to (only) the appropriate byte */
+    *(char *)address = (char)CPU_target;
 }
 
 // Setup the interval timer interrupts in the FPGA
@@ -1259,6 +1299,14 @@ void config_KEYs(void)
     *(KEY_ptr + 2) = 0xF; // enable interrupts for all KEYs
 }
 
+// Setup the PS2 for mouse input
+void config_PS2(void)
+{
+    volatile int * PS2_ptr = (int *)PS2_BASE;; // PS2 address
+    *(PS2_ptr) = 0xFF; // reset
+    *(PS2_ptr + 1) = 0x1; // enable interrupts from the PS2 port
+}
+
 // Turn on interrupts in the ARM processor
 void enable_A9_interrupts(void)
 {
@@ -1282,6 +1330,8 @@ void __attribute__((interrupt)) __cs3_isr_irq(void)
         interval_timer_ISR();
     else if (interrupt_ID == KEYS_IRQ)
         pushbutton_ISR();
+    else if (interrupt_ID == PS2_IRQ)
+        PS2_ISR();
     else
         while (1); // if unexpected, then stay here
     
