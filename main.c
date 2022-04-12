@@ -95,7 +95,7 @@
 
 /* Stem repelling from other pixels constants */
 #define REPEL_RANGE 12 // how far a stem can be affected by repelling
-#define REPEL_STRENGTH 2.0 // fastest speed change that repelling can cause
+#define REPEL_STRENGTH 1.5 // fastest speed change that repelling can cause
 
 /* Boolean constants */
 #define FALSE 0
@@ -155,7 +155,6 @@ typedef struct Moving_Point {
     double y;
     double x_dir;           // velocities
     double y_dir;
-    short int color;        // colour
     short int reverse_x;    // reverses the velocities
     short int reverse_y;
 } Moving_Point;
@@ -198,20 +197,6 @@ typedef struct Stem_List {
  * GLOBAL VARIABLES
  */
 int gTime;
-
-Box_Info boxes[SW_MAX];
-Box_Info old_boxes[SW_MAX];
-
-int num_boxes;
-int num_curr_boxes;
-int num_old_boxes;
-
-Flower_Info flowers[SW_MAX];
-Flower_Info old_flowers[SW_MAX];
-
-int num_flowers;
-int num_curr_flowers;
-int num_old_flowers;
 
 volatile int pixel_buffer_start;
 
@@ -262,13 +247,6 @@ void update_growing_stem_bez_point (Stem_List *list);
 void branch_stem (Stem_List *list);
 void draw_branching_stems_rec (Stem_List *list);
 
-/* Draw larger structures */
-void init_boxes();
-void move_boxes();
-void update_old_boxes();
-void clear_boxes();
-void draw_box_lines();
-
 /* Draw and animate flowers */
 void init_flowers();
 void move_flowers();
@@ -280,7 +258,6 @@ void draw_flower(int x, int y, short int petal_color, short int center_color, sh
 /* Draw simple shapes and lines */
 void plot_pixel(int x, int y, short int line_color);
 short int get_pixel (int x, int y);
-void draw_box(int x0, int y0, short int color, int length);
 void plot_line(int x0, int y0, int x1, int y1, short int line_color);
 void plot_ellipse(int x0, int y0, int r1, int r2, short int color);
 void plot_quad_bezier_seg(int x0, int y0, int x1, int y1, int x2, int y2, short int line_color);
@@ -292,6 +269,50 @@ void swap (int *first, int *second);
 D_Point vector_field (double x, double y, double time);
 // returns the control point for the Bezier curve described by the three point parameters
 D_Point bez_ctr_from_curve (double x0, double y0, double xt, double yt, double x2, double y2, double tr);
+
+
+void find_surround (int x, int y, int range, int *left_dist, int *right_dist, int *up_dist, int *down_dist) 
+{
+    // closest point left, right, up, and down of the given point
+    *left_dist = INVALID_POS;
+    *right_dist = INVALID_POS;
+    *up_dist = INVALID_POS;
+    *down_dist = INVALID_POS;
+
+    for (int i = 1; i < range; ++i) {
+        if ((*left_dist == INVALID_POS) && (get_pixel(x - i, y) != BLACK || x - i < 0))
+            *left_dist = i;
+        if ((*right_dist == INVALID_POS) && (get_pixel(x + i, y) != BLACK || x + i > RESOLUTION_X))
+            *right_dist = i;
+        if ((*up_dist == INVALID_POS) && (get_pixel(x, y - i) != BLACK || x - i < 0))
+            *up_dist = i;
+        if ((*down_dist == INVALID_POS) && (get_pixel(x, y + i) != BLACK || x + i > RESOLUTION_Y))
+            *down_dist = i;
+    }
+}
+
+double average_surround (int x, int y, int range) 
+{
+    // closest point left, right, up, and down of the given point
+    int left_dist, right_dist, up_dist, down_dist;
+    find_surround(x, y, range, &left_dist, &right_dist, &up_dist, &down_dist);
+
+    if (left_dist == INVALID_POS) 
+        left_dist = range;
+    if (right_dist == INVALID_POS) 
+        right_dist = range;
+    if (up_dist == INVALID_POS) 
+        up_dist = range;
+    if (down_dist == INVALID_POS) 
+        down_dist = range;
+
+    return (double)(left_dist + right_dist + up_dist + down_dist) / 3.0;
+}
+
+void set_flower_size ()
+{
+    
+}
 
 
 Stem_List test_stem;
@@ -308,6 +329,7 @@ void init_stem ()
 }
 
 
+<<<<<<< HEAD
 Moving_Point rand_box;
 Moving_Point old_rand_box;
 D_Point initial_point;
@@ -370,6 +392,8 @@ void draw_rand_point () {
                      rand_box.color);
 }
 
+=======
+>>>>>>> 398364a (Determine a flower size for ends of stems)
 /*
  * FUNCTION DEFINITIONS
  */
@@ -377,24 +401,6 @@ int main(void)
 {
     volatile int * pixel_ctrl_ptr = (int *)PIXEL_BUF_CTRL_BASE;
     volatile int * SW_ptr = (int *)SW_BASE;
-
-    // initialize number of boxes
-    num_curr_boxes = 0;
-    num_boxes = *SW_ptr;
-    if (num_boxes > SW_MAX)
-        num_boxes = SW_MAX;
-
-    // initialize number of flowers
-    num_curr_flowers = 0;
-    num_flowers = *SW_ptr;
-    if (num_flowers > SW_MAX)
-        num_flowers = SW_MAX;
-
-    // initialize location and direction of rectangles
-    init_boxes();
-
-    // initialize location and direction of flowers
-    init_flowers();
 
     set_A9_IRQ_stack();      // initialize the stack pointer for IRQ mode
     config_GIC();            // configure the general interrupt controller
@@ -409,30 +415,6 @@ int main(void)
 
     while (1)
     {
-        // set new number of boxes
-        num_boxes = *SW_ptr;
-        if (num_boxes > SW_MAX)
-            num_boxes = SW_MAX;
-
-        // set new number of flowers
-        num_flowers = *SW_ptr;
-        if (num_flowers > SW_MAX)
-            num_flowers = SW_MAX;
-
-        init_boxes();       // initialize any new boxes
-        clear_boxes();      // erase any boxes and lines in the last iteration
-        update_old_boxes(); // update the locations of boxes
-        move_boxes();
-        draw_box_lines();             // draw the boxes and lines
-
-        init_flowers();         // initialize any new flowers
-        clear_flowers();        // erase any flowers in the last iteration
-        update_old_flowers();   // update the locations of flowers
-        move_flowers();         // move the flowers
-        draw_all_flowers();     // draw all of the flowers
-
-        draw_rand_point ();
-
         draw_stem (&test_stem);
 
         wait_for_vsync(); // swap front and back buffers on VGA vertical sync
@@ -588,8 +570,6 @@ void draw_old_stem_nodes (Stem_List *list, short int color)
 {
     Stem_Node *n = list->head;
 	while (n != NULL && n->next != NULL) { // traverse list until reach last node
-		//draw_box((int)(n->old_point).x, (int)(n->old_point).y, color, 2);
-        //draw_box((int)(n->next->old_point).x, (int)(n->next->old_point).y, color, 2);
         plot_quad_bezier((int)(n->old_point).x, (int)(n->old_point).y, 
                          (int)(n->next->old_bez_point).x, (int)(n->next->old_bez_point).y,
                          (int)(n->next->old_point).x, (int)(n->next->old_point).y,
@@ -602,8 +582,6 @@ void draw_stem_nodes (Stem_List *list, short int color)
 {
     Stem_Node *n = list->head;
 	while (n != NULL && n->next != NULL) { // traverse list until reach last node
-		//draw_box((int)(n->point).x, (int)(n->point).y, test_stem.color, 2);
-        //draw_box((int)(n->next->point).x, (int)(n->next->point).y, test_stem.color, 2);
         plot_quad_bezier((int)(n->point).x, (int)(n->point).y, 
                          (int)(n->next->bez_ctr_point).x, (int)(n->next->bez_ctr_point).y,
                          (int)(n->next->point).x, (int)(n->next->point).y,
@@ -656,19 +634,8 @@ void move_point_from_repel (Moving_Point *point)
 D_Point repel_from_surround (int x, int y, double x_dir, double y_dir, int range) 
 {
     // closest point left, right, up, and down of the given point
-    int left_dist = INVALID_POS, right_dist = INVALID_POS;
-    int up_dist = INVALID_POS, down_dist = INVALID_POS;
-
-    for (int i = 1; i < range; ++i) {
-        if ((left_dist == INVALID_POS) && (get_pixel(x - i, y) != BLACK || x - i < 0))
-            left_dist = i;
-        if ((right_dist == INVALID_POS) && (get_pixel(x + i, y) != BLACK || x + i > RESOLUTION_X))
-            right_dist = i;
-        if ((up_dist == INVALID_POS) && (get_pixel(x, y - i) != BLACK || x - i < 0))
-            up_dist = i;
-        if ((down_dist == INVALID_POS) && (get_pixel(x, y + i) != BLACK || x + i > RESOLUTION_Y))
-            down_dist = i;
-    }
+    int left_dist, right_dist, up_dist, down_dist;
+    find_surround(x, y, range, &left_dist, &right_dist, &up_dist, &down_dist);
 
     D_Point repel_dir; // direction modifier
     repel_dir.x = 0;
@@ -796,7 +763,6 @@ void draw_branching_stems_rec (Stem_List *list)
 
 void draw_stem (Stem_List *list)
 {
-   
     add_new_stem_node(list); // add new nodes
     branch_stem(list); // add new stems branching off current stem
     draw_branching_stems_rec(list); // go through list and draw other stems in list, recursively
@@ -805,60 +771,11 @@ void draw_stem (Stem_List *list)
     move_stem_points(list); // move points of stem
     update_growing_stem_bez_point(list); // set new Bezier curve control point for growing point
     draw_stem_nodes(list, list->color); /// draw stem
-
 }
 
-
-/* Draw larger structures */
-void init_boxes (){
-    for (int i = num_curr_boxes; i < num_boxes; ++i) {
-        boxes[i].x = rand() % RESOLUTION_X;
-        boxes[i].y = rand() % RESOLUTION_Y;
-        boxes[i].x_dir = rand() % 2 * 2 - 1;
-        boxes[i].y_dir = rand() % 2 * 2 - 1;
-        boxes[i].color = (short int)(rand() % 0xFFFF);
-    }
-}
-
-void move_boxes (){
-    for (int i = 0; i < num_boxes; ++i) {
-        if (boxes[i].x <= 0 || boxes[i].x >= RESOLUTION_X)
-            boxes[i].x_dir *= -1;
-        if (boxes[i].y <= 0 || boxes[i].y >= RESOLUTION_Y)
-            boxes[i].y_dir *= -1; 
-
-        boxes[i].x += boxes[i].x_dir;
-        boxes[i].y += boxes[i].y_dir;
-    }
-    num_curr_boxes = num_boxes;
-}
-
-void update_old_boxes (){
-    for (int i = 0; i < num_curr_boxes; ++i) {
-        old_boxes[i].x = boxes[i].x;
-        old_boxes[i].y = boxes[i].y;
-    }
-    num_old_boxes = num_curr_boxes;
-}
-
-void clear_boxes() {
-    for (int i = 0; i < num_old_boxes; ++i) {
-        draw_box(old_boxes[i].x, old_boxes[i].y, BLACK, BOX_LEN);
-        plot_line(old_boxes[i].x, old_boxes[i].y, 
-                  old_boxes[(i+1)%num_old_boxes].x, old_boxes[(i+1)%num_old_boxes].y, BLACK);
-    }
-}
-
-void draw_box_lines() {
-    for (int i = 0; i < num_curr_boxes; ++i) {
-        draw_box(boxes[i].x, boxes[i].y, boxes[i].color, BOX_LEN);
-        plot_line(boxes[i].x, boxes[i].y, 
-                  boxes[(i+1)%num_curr_boxes].x, boxes[(i+1)%num_curr_boxes].y, 
-                  boxes[i].color);
-    }
-}
 
 /* Draw and animate flowers */
+<<<<<<< HEAD
 void init_flowers (){
     for (int i = num_curr_flowers; i < num_flowers; ++i) {
         flowers[i].x = rand() % RESOLUTION_X;
@@ -905,6 +822,9 @@ void draw_all_flowers() {
 }
 
 void draw_flower(int x, int y, short int petal_color, short int center_color, short int size) {
+=======
+void draw_flower(int x, int y, short int color, short int size) {
+>>>>>>> 398364a (Determine a flower size for ends of stems)
 	int radius = 5;
 
     // draw the petals
@@ -977,15 +897,6 @@ short int get_pixel (int x, int y)
     volatile short int pixel = *(short int *)(FPGA_ONCHIP_BASE + (y << 10) + (x << 1));
     pixel = pixel & 0x0000FFFF;
     return pixel;
-}
-
-void draw_box(int x0, int y0, short int color, int length)
-{
-    for(int i = 0; i < length; ++i) {
-        for(int j = 0; j < length; ++j) {
-            plot_pixel(x0 + i, y0 + j, color);
-        }
-    }
 }
 
 // line drawing using Bresenham's algorithm
