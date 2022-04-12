@@ -210,6 +210,7 @@ typedef struct Stem_List {
  * GLOBAL VARIABLES
  */
 int gTime;
+int speed;
 
 volatile int pixel_buffer_start;
 
@@ -275,6 +276,7 @@ void plot_line(int x0, int y0, int x1, int y1, short int line_color);
 void plot_ellipse(int x0, int y0, int r1, int r2, short int color);
 void plot_quad_bezier_seg(int x0, int y0, int x1, int y1, int x2, int y2, short int line_color);
 void plot_quad_bezier(int x0, int y0, int x1, int y1, int x2, int y2, short int line_color);
+void change_colors();
 void clear_screen();
 
 /* Helper functions */
@@ -396,6 +398,30 @@ int main(void)
     volatile int * pixel_ctrl_ptr = (int *)PIXEL_BUF_CTRL_BASE;
     volatile int * SW_ptr = (int *)SW_BASE;
 
+<<<<<<< HEAD
+=======
+    // initialize speed
+    speed = 1;
+
+    // initialize number of boxes
+    num_curr_boxes = 0;
+    num_boxes = *SW_ptr;
+    if (num_boxes > SW_MAX)
+        num_boxes = SW_MAX;
+
+    // initialize number of flowers
+    num_curr_flowers = 0;
+    num_flowers = *SW_ptr;
+    if (num_flowers > SW_MAX)
+        num_flowers = SW_MAX;
+
+    // initialize location and direction of rectangles
+    init_boxes();
+
+    // initialize location and direction of flowers
+    init_flowers();
+
+>>>>>>> d069a9a (Add some functions to execute when a button is pressed (still work in progress, not all buttons are done))
     set_A9_IRQ_stack();      // initialize the stack pointer for IRQ mode
     config_GIC();            // configure the general interrupt controller
     config_interval_timer(); // configure interval timer to generate interrupts
@@ -1020,6 +1046,16 @@ void plot_quad_bezier(int x0, int y0, int x1, int y1, int x2, int y2, short int 
     plot_quad_bezier_seg(x0, y0, x1, y1, x2, y2, line_color); // remaining part
 }
 
+void change_colors()
+{
+    for (int i = 0; i < sizeof(flowers)/sizeof(flowers[0]); i++) {
+        flowers[i].petal_color = (short int)(rand() % 0xFFFF);
+        flowers[i].center_color = (short int)(rand() % 0xFFFF);
+        old_flowers[i].petal_color = flowers[i].petal_color;
+        old_flowers[i].center_color = flowers[i].center_color;
+    }
+}
+
 void clear_screen()
 {
     for (int x = 0; x < RESOLUTION_X; ++x) {
@@ -1112,8 +1148,13 @@ void interval_timer_ISR(void)
     // interal timer base address
     volatile int * interval_timer_ptr = (int *)TIMER_BASE;
     *(interval_timer_ptr) = 0; // clear the interrupt
+<<<<<<< HEAD
 
     ++gTime;
+=======
+    
+    gTime += speed;
+>>>>>>> d069a9a (Add some functions to execute when a button is pressed (still work in progress, not all buttons are done))
 }
 
 void pushbutton_ISR(void) 
@@ -1124,10 +1165,30 @@ void pushbutton_ISR(void)
     int press = *(KEY_ptr + 3); // read the pushbutton interrupt register
     *(KEY_ptr + 3) = press; // clear the interrupt
 
-    if (press & 0x1); // KEY0
-    else if (press & 0x2); // KEY1
-    else if (press & 0x4); // KEY2
-    else; // press & 0x8, which is KEY3
+    if (press & 0x1) { // KEY0
+        // reset the animation
+        clear_screen();
+        // free all of the linked lists and clear the global var + arrays
+    }
+    else if (press & 0x2) { // KEY1
+        // pause or un-pause the program
+        if (speed == 0)
+            speed = 1;
+        else
+            speed = 0;
+    }
+    else if (press & 0x4) { // KEY2
+        // increase the speed - work in progress
+        /*if (speed > 10) {
+            speed = 1;
+            SPEED_SCALE = 0.5;
+        }
+        speed *= 2;
+        SPEED_SCALE *= 2;*/
+    }
+    else { // press & 0x8, which is KEY3
+        change_colors(); // change the colours of the flower and stem
+    }
 }
 
 
