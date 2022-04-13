@@ -393,8 +393,8 @@ void init_moving_point (Moving_Point *point, double x, double y, short int rev_x
     D_Point dir = vector_field(x, y, gTime);
     point->x = x;
     point->y = y;
-    point->x_dir = dir.x + SPEED_SCALE * (rand() % 3 - 1); // start with slightly different velocity
-    point->y_dir = dir.y + SPEED_SCALE * (rand() % 3 - 1);
+    point->x_dir = dir.x + speed_scale * (rand() % 3 - 1); // start with slightly different velocity
+    point->y_dir = dir.y + speed_scale * (rand() % 3 - 1);
     point->reverse_x = rev_x;
     point->reverse_y = rev_y;
 }
@@ -1427,7 +1427,7 @@ void PS2_ISR(void)
     }
 	
 	if (old_mouse_x != NULL && old_mouse_y != NULL)
-	    plot_ellipse(old_mouse_x, old_mouse_y, 3, 3, BLACK); // erase old mouse
+	    plot_ellipse(old_mouse_x, old_mouse_y, 3, 3, BLACK, BLACK); // erase old mouse
 	
 	old_mouse_x = mouse_x;
     old_mouse_y = mouse_y;
@@ -1457,7 +1457,7 @@ void PS2_ISR(void)
 
     
     if (mouse_x != NULL && mouse_y != NULL)
-	    plot_ellipse(mouse_x, mouse_y, 3, 3, WHITE); // draw new mouse
+	    plot_ellipse(mouse_x, mouse_y, 3, 3, WHITE, BLACK); // draw new mouse
 
 	printf ("%d, %d -- %d, %d, %d\n", mouse_x, mouse_y, byte1, byte2, byte3);
 
