@@ -562,6 +562,7 @@ void add_plant_node (Plant_List *list, double x, double y)
 void free_plant_list (Plant_List *list)
 {
     while (list->head != NULL) {
+        free_stem_list(list->head->stem);
         Plant_Node *new_head = list->head->next;
         free(list->head);
         list->head = new_head;
@@ -1123,6 +1124,19 @@ void clear_screen()
             *(short int *)(pixel_buffer_start + (y << 10) + (x << 1)) = BLACK;
         }
     }
+    
+}
+
+void clear_all ()
+{
+    volatile int * pixel_ctrl_ptr = (int *)PIXEL_BUF_CTRL_BASE;
+    free_plant_list(&plants);
+    wait_for_vsync(); // swap front and back buffers on VGA vertical sync
+    pixel_buffer_start = *(pixel_ctrl_ptr + 1);
+    clear_screen();
+    wait_for_vsync(); // swap front and back buffers on VGA vertical sync
+    pixel_buffer_start = *(pixel_ctrl_ptr + 1);
+    clear_screen();
 }
 
 
@@ -1366,7 +1380,7 @@ void pushbutton_ISR(void)
 
     if (press & 0x1) { // KEY0
         // reset the animation
-        clear_screen();
+        clear_all();
         // free all of the linked lists and clear the global var + arrays
     }
     else if (press & 0x2) { // KEY1
