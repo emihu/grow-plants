@@ -75,8 +75,8 @@
 #define SW_MAX 64
 
 /* Constants for moving points and vector field */
-#define FIELD_SCALE 60 // the higher, the less the field changes
-#define SPEED_SCALE 0.6
+#define FIELD_SCALE 70 // the higher, the less the field changes
+#define SPEED_SCALE 0.65
 
 /* Constants for stem growth */
 #define BEZ_CHANGE_FREQ 12 // 12 Bezier control point changes per growth
@@ -101,17 +101,24 @@
 #define REPEL_RANGE 12 // how far a stem can be affected by repelling
 #define REPEL_STRENGTH 1.5 // fastest speed change that repelling can cause
 
+/* Flower growth constants */
+#define FLOWER_SIZE_RANGE 21
+
 /* Color constants */
 #define MAX_RED_BLUE 0b11111 // 31
 #define MAX_GREEN 0b111111 // 63
 #define MIN_RGB 0
 
+/* Plant color constants */
 #define STEM_MIN_RED 0
 #define STEM_MAX_RED 15
 #define STEM_MIN_GREEN 31
 #define STEM_MAX_GREEN 63
 #define STEM_MIN_BLUE 0
 #define STEM_MAX_BLUE 10
+#define DARK_COLOR_CHANGE 4
+#define DARK_CENTER 0x1860
+#define YELLOW_CENTER 0xFFE0
 
 /* Boolean constants */
 #define FALSE 0
@@ -205,6 +212,9 @@ typedef struct Stem_List {
     short int curr_flower_size;
     short int old_flower_size;
     short int color;
+    short int flower_color;
+    short int flower_center_color;
+    short int border_color;
     Stem_Node * head;
     Stem_Node * tail;
 } Stem_List;
@@ -243,7 +253,7 @@ void wait_for_vsync();
 /* Initialize structures */
 void init_moving_point (Moving_Point *point, double x, double y, short int rev_x, short int rev_y);
 void init_stem_node (Stem_Node *node, double x, double y, double bez_x, double bez_y, short int rev_x, short int rev_y, short int can_branch);
-void init_stem_list (Stem_List *list, double x, double y, int color, int num_branches);
+void init_stem_list (Stem_List *list, double x, double y, short int color, short int flower_color, short int flower_center_color, short int border_color, int num_branches);
 int get_stem_length (int num_branches);
 short int is_branchable (int num_branches);
 int get_stem_growth_period ();
@@ -257,6 +267,8 @@ void draw_stem (Stem_List *list);
 void add_new_stem_node (Stem_List *list);
 void draw_old_stem_nodes (Stem_List *list, short int color);
 void draw_stem_nodes (Stem_List *list, short int color);
+void draw_old_stem_flower (Stem_List *list);
+void draw_stem_flower (Stem_List *list);
 void update_old_stem_points (Stem_List *list);
 void move_point_in_vec_field (Moving_Point *point, double dir_factor);
 void move_point_from_repel (Moving_Point *point);
@@ -267,6 +279,8 @@ void set_grow_bez_point (Stem_List *list, int d_node_time, int bez_time_div);
 void update_growing_stem_bez_point (Stem_List *list);
 void branch_stem (Stem_List *list);
 void draw_branching_stems_rec (Stem_List *list);
+void update_flower_size (Stem_List *list);
+void set_flower_size (Stem_List *list);
 
 /* Draw and animate flowers */
 void init_flowers();
@@ -274,113 +288,33 @@ void move_flowers();
 void update_old_flowers();
 void clear_flowers();
 void draw_all_flowers();
-void draw_flower(int x, int y, short int petal_color, short int center_color, short int size);
+void draw_flower(int x, int y, short int petal_color, short int center_color, short int border_color, short int size);
 
 /* Draw simple shapes and lines */
 void plot_pixel(int x, int y, short int line_color);
 short int get_pixel (int x, int y);
 void plot_line(int x0, int y0, int x1, int y1, short int line_color);
-void plot_ellipse(int x0, int y0, int r1, int r2, short int color);
+void plot_ellipse(int x0, int y0, int r1, int r2, short int color, short int border_color);
 void plot_quad_bezier_seg(int x0, int y0, int x1, int y1, int x2, int y2, short int line_color);
 void plot_quad_bezier(int x0, int y0, int x1, int y1, int x2, int y2, short int line_color);
 void change_colors();
 void clear_screen();
+
+/* Colour changing functions */
+// returns a random colour based on parameters limiting the amount of red, green, and blue, 
+// the minimum amount for each is 0, the maximum red and blue input is 31, maximum green input is 63
+short int randomize_color (short int min_red, short int max_red, short int min_green, short int max_green, short int min_blue, short int max_blue);
+short int randomize_color_change (short int color, short int red_change, short int green_change, short int blue_change);
+short int darkify_color (short int color);
+short int randomize_flower_color ();
 
 /* Helper functions */
 void swap (int *first, int *second);
 D_Point vector_field (double x, double y, double time);
 // returns the control point for the Bezier curve described by the three point parameters
 D_Point bez_ctr_from_curve (double x0, double y0, double xt, double yt, double x2, double y2, double tr);
-
-
-#define FLOWER_SIZE_RANGE 20
-
-void find_surround (int x, int y, int range, int *left_dist, int *right_dist, int *up_dist, int *down_dist) 
-{
-    // closest point left, right, up, and down of the given point
-    *left_dist = INVALID_VAL;
-    *right_dist = INVALID_VAL;
-    *up_dist = INVALID_VAL;
-    *down_dist = INVALID_VAL;
-
-    for (int i = 1; i < range; ++i) {
-        if ((*left_dist == INVALID_VAL) && (get_pixel(x - i, y) != BLACK || x - i < 0))
-            *left_dist = i;
-        if ((*right_dist == INVALID_VAL) && (get_pixel(x + i, y) != BLACK || x + i > RESOLUTION_X))
-            *right_dist = i;
-        if ((*up_dist == INVALID_VAL) && (get_pixel(x, y - i) != BLACK || x - i < 0))
-            *up_dist = i;
-        if ((*down_dist == INVALID_VAL) && (get_pixel(x, y + i) != BLACK || x + i > RESOLUTION_Y))
-            *down_dist = i;
-    }
-}
-
-double average_surround (int x, int y, int range) 
-{
-    // closest point left, right, up, and down of the given point
-    int left_dist, right_dist, up_dist, down_dist;
-    find_surround(x, y, range, &left_dist, &right_dist, &up_dist, &down_dist);
-
-    if (left_dist == INVALID_VAL) 
-        left_dist = range;
-    if (right_dist == INVALID_VAL) 
-        right_dist = range;
-    if (up_dist == INVALID_VAL) 
-        up_dist = range;
-    if (down_dist == INVALID_VAL) 
-        down_dist = range;
-
-    return (double)(left_dist + right_dist + up_dist + down_dist) / 3.0;
-}
-
-void set_flower_size (Stem_List *list)
-{
-    if (list->length < list->length_lim) { return; } // if still growing, no flower
-
-    if (list->max_flower_size == INVALID_VAL)
-        list->max_flower_size = average_surround(list->tail->point.x, list->tail->point.y, FLOWER_SIZE_RANGE);
-    else if (list->curr_flower_size != list->max_flower_size)
-        list->curr_flower_size = list->curr_flower_size + 1;
-}
-
-void update_flower_size (Stem_List *list)
-{
-    if (list->old_flower_size == list->max_flower_size)
-        return;
-    list->old_flower_size = list->curr_flower_size;
-}
-
-// returns a random colour based on parameters limiting the amount of red, green, and blue, 
-// the minimum amount for each is 0, the maximum red and blue input is 31, maximum green input is 63
-short int randomize_color (short int min_red, short int max_red, short int min_green, short int max_green, short int min_blue, short int max_blue)
-{
-    short int red = rand() % (max_red - min_red + 1) + min_red; // bits 15 - 11
-    short int green = rand() % (max_green - min_green + 1) + min_green; // bits 10 - 5
-    short int blue = rand() % (max_blue - min_blue + 1) + min_blue; // bits 4 - 0
-
-    short int color = (red << 11) + (green << 5) + blue;
-    return color;
-}
-
-void draw_stem_flower (Stem_List *list, short int petal_color, short int center_color, short int flower_size)
-{
-    if (list->length < list->length_lim) { return; } // if still growing, no flower
-
-    Moving_Point point = list->tail->point;
-    short int size;
-    if (flower_size < 20)
-        draw_flower(point.x, point.y, petal_color, petal_color, 0);
-    else if (flower_size < 22)
-        draw_flower(point.x, point.y, petal_color, center_color, 1);
-    else if (flower_size < 23)
-        draw_flower(point.x, point.y, petal_color, center_color, 2);
-    else if (flower_size < 24)
-        draw_flower(point.x, point.y, petal_color, center_color, 3);
-    else if (flower_size < 25)
-        draw_flower(point.x, point.y, petal_color, center_color, 4);
-    else
-        draw_flower(point.x, point.y, petal_color, center_color, 5);
-}
+void find_surround (int x, int y, int range, int *left_dist, int *right_dist, int *up_dist, int *down_dist);
+double average_surround (int x, int y, int range);
 
 
 Stem_List test_stem;
@@ -391,7 +325,12 @@ void init_stem ()
     int start_x = rand() % RESOLUTION_X;
     int start_y = rand() % RESOLUTION_Y;
 
-    init_stem_list(&test_stem, start_x, start_y, randomize_color(STEM_MIN_RED, STEM_MAX_RED, STEM_MIN_GREEN, STEM_MAX_GREEN, STEM_MIN_BLUE, STEM_MAX_BLUE), 0);
+    short int color = randomize_color(STEM_MIN_RED, STEM_MAX_RED, STEM_MIN_GREEN, STEM_MAX_GREEN, STEM_MIN_BLUE, STEM_MAX_BLUE);
+    short int flower_color = randomize_flower_color();
+    short int flower_center_color = (rand() % 2 == 0) ? DARK_CENTER : YELLOW_CENTER;
+    short int border_color = darkify_color(flower_color);
+
+    init_stem_list(&test_stem, start_x, start_y, color, flower_color, flower_center_color, border_color, 0);
     
     add_stem_node(&test_stem, start_x, start_y, INVALID_VAL, INVALID_VAL, 1, 1);
 }
@@ -436,8 +375,8 @@ void init_moving_point (Moving_Point *point, double x, double y, short int rev_x
     D_Point dir = vector_field(x, y, gTime);
     point->x = x;
     point->y = y;
-    point->x_dir = dir.x;
-    point->y_dir = dir.y;
+    point->x_dir = dir.x + SPEED_SCALE * (rand() % 3 - 1); // start with slightly different velocity
+    point->y_dir = dir.y + SPEED_SCALE * (rand() % 3 - 1);
     point->reverse_x = rev_x;
     point->reverse_y = rev_y;
 }
@@ -459,7 +398,7 @@ void init_stem_node (Stem_Node *node, double x, double y, double bez_x, double b
     node->branching_stem = NULL;
 }
 
-void init_stem_list (Stem_List *list, double x, double y, int color, int num_branches) 
+void init_stem_list (Stem_List *list, double x, double y, short int color, short int flower_color, short int flower_center_color, short int border_color, int num_branches) 
 {
     list->created_new = TRUE;
 
@@ -477,6 +416,9 @@ void init_stem_list (Stem_List *list, double x, double y, int color, int num_bra
     list->old_flower_size = INVALID_VAL;
 
     list->color = color;
+    list->flower_color = flower_color;
+    list->flower_center_color = flower_center_color;
+    list->border_color = border_color;
     list->head = NULL;
     list->tail = NULL;
 }
@@ -600,6 +542,45 @@ void draw_stem_nodes (Stem_List *list, short int color)
     }
 }
 
+void draw_old_stem_flower (Stem_List *list)
+{
+    if (list->length < list->length_lim) { return; } // if still growing, no flower
+
+    D_Point point = list->tail->old_point; 
+    short int size = list->old_flower_size; 
+    if (size < 14)
+        plot_ellipse(point.x, point.y, size/6 + 2, size/6 + 2, BLACK, BLACK);
+    else if (size < 16)
+        draw_flower(point.x, point.y, BLACK, BLACK, BLACK, 1);
+    else if (size < 18)
+        draw_flower(point.x, point.y, BLACK, BLACK, BLACK, 2);
+    else if (size < 22)
+        draw_flower(point.x, point.y, BLACK, BLACK, BLACK, 3);
+    else if (size < 25)
+        draw_flower(point.x, point.y, BLACK, BLACK, BLACK, 4);
+    else
+        draw_flower(point.x, point.y, BLACK, BLACK, BLACK, 5);
+}
+
+void draw_stem_flower (Stem_List *list)
+{
+    if (list->length < list->length_lim) { return; } // if still growing, no flower
+
+    Moving_Point point = list->tail->point;
+    short int size = list->curr_flower_size;
+    if (size < 14)
+        plot_ellipse(point.x, point.y, size/6 + 2, size/6 + 2, list->flower_color, list->border_color);
+    else if (size < 17)
+        draw_flower(point.x, point.y, list->flower_color, list->flower_center_color, list->border_color, 1);
+    else if (size < 20)
+        draw_flower(point.x, point.y, list->flower_color, list->flower_center_color, list->border_color, 2);
+    else if (size < 23)
+        draw_flower(point.x, point.y, list->flower_color, list->flower_center_color, list->border_color, 3);
+    else if (size < 25)
+        draw_flower(point.x, point.y, list->flower_color, list->flower_center_color, list->border_color, 4);
+    else
+        draw_flower(point.x, point.y, list->flower_color, list->flower_center_color, list->border_color, 5);
+}
 
 void update_old_stem_points (Stem_List *list) 
 {
@@ -734,6 +715,21 @@ void update_growing_stem_bez_point (Stem_List *list)
     }
 }
 
+void set_flower_size (Stem_List *list)
+{
+    if (list->length < list->length_lim) { return; } // if still growing, no flower
+
+    if (list->max_flower_size == INVALID_VAL)
+        list->max_flower_size = average_surround(list->tail->point.x, list->tail->point.y, FLOWER_SIZE_RANGE);
+    else if (list->curr_flower_size != list->max_flower_size)
+        list->curr_flower_size = list->curr_flower_size + (rand() % 2);
+}
+
+void update_flower_size (Stem_List *list)
+{
+    list->old_flower_size = list->curr_flower_size;
+}
+
 void branch_stem (Stem_List *list) 
 {
     Stem_Node *n = list->head;
@@ -746,7 +742,8 @@ void branch_stem (Stem_List *list)
                 Stem_List * new_list = (Stem_List*) malloc(sizeof(Stem_List));
                 if (new_list == NULL) // check if enough memory to allocate
                     return;
-                init_stem_list(new_list, n->point.x, n->point.y, list->color, list->num_branches + 1);
+                short int flower_color = randomize_color_change(list->flower_color, 3, 3, 3);
+                init_stem_list(new_list, n->point.x, n->point.y, list->color, flower_color, list->flower_center_color, darkify_color(flower_color), list->num_branches + 1);
                 add_stem_node(new_list, n->point.x, n->point.y, INVALID_VAL, INVALID_VAL, n->point.reverse_x, n->point.reverse_y);
                 
                 n->branching_stem = new_list;
@@ -775,76 +772,76 @@ void draw_stem (Stem_List *list)
 {
     add_new_stem_node(list); // add new nodes
     branch_stem(list); // add new stems branching off current stem
-    draw_branching_stems_rec(list); // go through list and draw other stems in list, recursively
     draw_old_stem_nodes(list, BLACK); // clear stem drawing
-    draw_stem_flower(list, BLACK, BLACK, list->old_flower_size);
+    draw_old_stem_flower(list); // clear flower drawing
     update_old_stem_points(list); // update old points
     move_stem_points(list); // move points of stem
     update_growing_stem_bez_point(list); // set new Bezier curve control point for growing point
     update_flower_size (list); // update old flower size
     set_flower_size (list); // set flower size of stem based on room available
     draw_stem_nodes(list, list->color); /// draw stem
-    draw_stem_flower(list, YELLOW, BLACK, list->curr_flower_size);
+    draw_stem_flower(list); // draw flower
+    draw_branching_stems_rec(list); // go through list and draw other stems in list, recursively
 }
 
 
 /* Draw and animate flowers */
-void draw_flower(int x, int y, short int petal_color, short int center_color, short int size) {
-	int radius = 5;
+void draw_flower (int x, int y, short int petal_color, short int center_color, short int border_color, short int size) {
+	int radius = 3;
 
     // draw the petals
     if (size >= 5) { // fifth layer of petals
-        plot_ellipse(x + 7, y + 18, radius + 3, radius + 3, petal_color);
-        plot_ellipse(x - 7, y + 18, radius + 3, radius + 3, petal_color);
-        plot_ellipse(x + 7, y - 18, radius + 3, radius + 3, petal_color);
-        plot_ellipse(x - 7, y - 18, radius + 3, radius + 3, petal_color);
+        plot_ellipse(x + radius*1.5, y + radius*3.5, radius*1.75, radius*1.75, petal_color, border_color);
+        plot_ellipse(x - radius*1.5, y + radius*3.5, radius*1.75, radius*1.75, petal_color, border_color);
+        plot_ellipse(x + radius*1.5, y - radius*3.5, radius*1.75, radius*1.75, petal_color, border_color);
+        plot_ellipse(x - radius*1.5, y - radius*3.5, radius*1.75, radius*1.75, petal_color, border_color);
 
-        plot_ellipse(x + 18, y + 7, radius + 3, radius + 3, petal_color);
-        plot_ellipse(x - 18, y + 7, radius + 3, radius + 3, petal_color);
-        plot_ellipse(x + 18, y - 7, radius + 3, radius + 3, petal_color);
-        plot_ellipse(x - 18, y - 7, radius + 3, radius + 3, petal_color);
+        plot_ellipse(x + radius*3.5, y + radius*1.5, radius*1.75, radius*1.75, petal_color, border_color);
+        plot_ellipse(x - radius*3.5, y + radius*1.5, radius*1.75, radius*1.75, petal_color, border_color);
+        plot_ellipse(x + radius*3.5, y - radius*1.5, radius*1.75, radius*1.75, petal_color, border_color);
+        plot_ellipse(x - radius*3.5, y - radius*1.5, radius*1.75, radius*1.75, petal_color, border_color);
     }
 
     if (size >= 4) { // fourth layer of petals
-        plot_ellipse(x + 3 * radius, y, radius + 1, radius + 1, petal_color);
-        plot_ellipse(x - 3 * radius, y, radius + 1, radius + 1, petal_color);
-        plot_ellipse(x, y + 3 * radius, radius + 1, radius + 1, petal_color);
-        plot_ellipse(x, y - 3 * radius, radius + 1, radius + 1, petal_color);
+        plot_ellipse(x + 3 * radius, y, radius*1.5, radius*1.5, petal_color, border_color);
+        plot_ellipse(x - 3 * radius, y, radius*1.5, radius*1.5, petal_color, border_color);
+        plot_ellipse(x, y + 3 * radius, radius*1.5, radius*1.5, petal_color, border_color);
+        plot_ellipse(x, y - 3 * radius, radius*1.5, radius*1.5, petal_color, border_color);
 
-        plot_ellipse(x + 2 * radius, y + 2 * radius, radius + 1, radius + 1, petal_color);
-        plot_ellipse(x - 2 * radius, y + 2 * radius, radius + 1, radius + 1, petal_color);
-        plot_ellipse(x + 2 * radius, y - 2 * radius, radius + 1, radius + 1, petal_color);
-        plot_ellipse(x - 2 * radius, y - 2 * radius, radius + 1, radius + 1, petal_color);
+        plot_ellipse(x + 2 * radius, y + 2 * radius, radius*1.5, radius + 1, petal_color, border_color);
+        plot_ellipse(x - 2 * radius, y + 2 * radius, radius*1.5, radius + 1, petal_color, border_color);
+        plot_ellipse(x + 2 * radius, y - 2 * radius, radius*1.5, radius + 1, petal_color, border_color);
+        plot_ellipse(x - 2 * radius, y - 2 * radius, radius*1.5, radius + 1, petal_color, border_color);
     }
 
     if (size >= 3) { // third layer of petals
-        plot_ellipse(x + 4, y + 2 * radius, radius, radius, petal_color);
-        plot_ellipse(x - 4, y + 2 * radius, radius, radius, petal_color);
-        plot_ellipse(x + 4, y - 2 * radius, radius, radius, petal_color);
-        plot_ellipse(x - 4, y - 2 * radius, radius, radius, petal_color);
+        plot_ellipse(x + (radius*0.75), y + 2 * radius, radius, radius, petal_color, border_color);
+        plot_ellipse(x - (radius*0.75), y + 2 * radius, radius, radius, petal_color, border_color);
+        plot_ellipse(x + (radius*0.75), y - 2 * radius, radius, radius, petal_color, border_color);
+        plot_ellipse(x - (radius*0.75), y - 2 * radius, radius, radius, petal_color, border_color);
 
-        plot_ellipse(x + 2 * radius, y + 4, radius, radius, petal_color);
-        plot_ellipse(x - 2 * radius, y + 4, radius, radius, petal_color);
-        plot_ellipse(x + 2 * radius, y - 4, radius, radius, petal_color);
-        plot_ellipse(x - 2 * radius, y - 4, radius, radius, petal_color);
+        plot_ellipse(x + 2 * radius, y + (radius*0.75), radius, radius, petal_color, border_color);
+        plot_ellipse(x - 2 * radius, y + (radius*0.75), radius, radius, petal_color, border_color);
+        plot_ellipse(x + 2 * radius, y - (radius*0.75), radius, radius, petal_color, border_color);
+        plot_ellipse(x - 2 * radius, y - (radius*0.75), radius, radius, petal_color, border_color);
     }
 
     if (size >= 2) { // second layer of petals
-        plot_ellipse(x + 8, y, radius, radius, petal_color);
-        plot_ellipse(x - 8, y, radius, radius, petal_color);
-        plot_ellipse(x, y + 8, radius, radius, petal_color);
-        plot_ellipse(x, y - 8, radius, radius, petal_color);
+        plot_ellipse(x + 2*(radius*0.75), y, radius, radius, petal_color, border_color);
+        plot_ellipse(x - 2*(radius*0.75), y, radius, radius, petal_color, border_color);
+        plot_ellipse(x, y + 2*(radius*0.75), radius, radius, petal_color, border_color);
+        plot_ellipse(x, y - 2*(radius*0.75), radius, radius, petal_color, border_color);
     }
 
     if (size >= 1) { // first layer of petals
-        plot_ellipse(x + radius, y + radius, radius, radius, petal_color);
-        plot_ellipse(x - radius, y + radius, radius, radius, petal_color);
-        plot_ellipse(x + radius, y - radius, radius, radius, petal_color);
-        plot_ellipse(x - radius, y - radius, radius, radius, petal_color);
+        plot_ellipse(x + radius, y + radius, radius, radius, petal_color, border_color);
+        plot_ellipse(x - radius, y + radius, radius, radius, petal_color, border_color);
+        plot_ellipse(x + radius, y - radius, radius, radius, petal_color, border_color);
+        plot_ellipse(x - radius, y - radius, radius, radius, petal_color, border_color);
     }
 
     // draw center of the flower
-    plot_ellipse(x, y, 4, 4, center_color);
+    plot_ellipse(x, y, radius*0.75, radius*0.75, center_color, border_color);
 }
 
 /* Draw simple shapes and lines */
@@ -898,7 +895,7 @@ void plot_line(int x0, int y0, int x1, int y1, short int line_color)
 }
 
 // ellipse using algorithm from https://zingl.github.io/Bresenham.pdf
-void plot_ellipse(int x0, int y0, int r1, int r2, short int color) 
+void plot_ellipse(int x0, int y0, int r1, int r2, short int color, short int border_color) 
 {
     long x = -r1, y = 0;                      /* II. quadrant from bottom left to top right */
     long e2 = r2, dx = (1 + 2 * x) * e2 * e2; /* error increment */
@@ -915,10 +912,10 @@ void plot_ellipse(int x0, int y0, int r1, int r2, short int color)
         }
 
         // black border
-        plot_pixel(x0 - abs(x), y0 + y, BLACK); // Quadrant 1
-        plot_pixel(x0 + abs(x), y0 + y, BLACK); // Quadrant 2
-        plot_pixel(x0 + abs(x), y0 - y, BLACK); // Quadrant 3
-        plot_pixel(x0 - abs(x), y0 - y, BLACK); // Quadrant 4
+        plot_pixel(x0 - abs(x), y0 + y, border_color); // Quadrant 1
+        plot_pixel(x0 + abs(x), y0 + y, border_color); // Quadrant 2
+        plot_pixel(x0 + abs(x), y0 - y, border_color); // Quadrant 3
+        plot_pixel(x0 - abs(x), y0 - y, border_color); // Quadrant 4
 
         e2 = 2 * err;
 
@@ -1054,7 +1051,151 @@ void clear_screen()
 }
 
 
+/* Colour changing functions */
+// returns a random colour based on parameters limiting the amount of red, green, and blue, 
+// the minimum amount for each is 0, the maximum red and blue input is 31, maximum green input is 63
+short int randomize_color (short int min_red, short int max_red, short int min_green, short int max_green, short int min_blue, short int max_blue)
+{
+    // ensure the values remain within bounds
+    min_red = (min_red < MIN_RGB) ? MIN_RGB : min_red;
+    max_red = (max_red > MAX_RED_BLUE) ? MAX_RED_BLUE : max_red;
+    min_green = (min_green < MIN_RGB) ? MIN_RGB : min_green;
+    max_green = (max_green > MAX_GREEN) ? MAX_GREEN : max_green;
+    min_blue = (min_blue < MIN_RGB) ? MIN_RGB : min_blue;
+    max_blue = (max_blue > MAX_RED_BLUE) ? MAX_RED_BLUE : max_blue;
+
+    // randomize the individual rgb bits
+    short int red = rand() % (max_red - min_red + 1) + min_red; // bits 15 - 11
+    short int green = rand() % (max_green - min_green + 1) + min_green; // bits 10 - 5
+    short int blue = rand() % (max_blue - min_blue + 1) + min_blue; // bits 4 - 0
+
+    // combine rgb bits into single colour
+    short int color = (red << 11) + (green << 5) + blue;
+    return color;
+}
+
+short int randomize_color_change (short int color, short int red_change, short int green_change, short int blue_change)
+{
+    short int red = (color & 0b1111100000000000) >> 11;
+    short int green = (color & 0b0000011111100000) >> 5;
+    short int blue = (color & 0b0000000000011111);
+
+    short int min_red = red - red_change;
+    short int max_red = red + red_change;
+    short int min_green = green - green_change;
+    short int max_green = green + green_change;
+    short int min_blue = blue - blue_change;
+    short int max_blue = blue + blue_change;
+
+    short int new_color = randomize_color(min_red, max_red, min_green, max_green, min_blue, max_blue);
+    return new_color;
+}
+
+short int darkify_color (short int color)
+{
+    short int red = (color & 0b1111100000000000) >> 11;
+    short int green = (color & 0b0000011111100000) >> 5;
+    short int blue = (color & 0b0000000000011111);
+
+    red /= DARK_COLOR_CHANGE;
+    green /= DARK_COLOR_CHANGE;
+    blue /= DARK_COLOR_CHANGE;
+
+    short int dark_color = (red << 11) + (green << 5) + blue;
+    return dark_color;
+}
+
+short int randomize_flower_color () 
+{
+    short int min_red, max_red, min_blue, max_blue, min_green, max_green;
+
+    int random = rand() % 4;
+
+    if (random == 0) { // red
+        min_red = 7 * MAX_RED_BLUE / 8;
+        max_red = MAX_RED_BLUE;
+        min_green = MAX_GREEN / 7;
+        max_green = 2 * MAX_GREEN / 5;
+        min_blue = MAX_RED_BLUE / 8;
+        max_blue = MAX_RED_BLUE / 3;
+    }
+    else if (random == 1) { // yellow
+        min_red = 5 * MAX_RED_BLUE / 6;
+        max_red = MAX_RED_BLUE;
+        min_green = 4 * MAX_GREEN / 6;
+        max_green = 5 * MAX_GREEN / 6;
+        min_blue = MAX_RED_BLUE / 6;
+        max_blue = MAX_RED_BLUE / 4;
+    }
+    else if (random == 2) { 
+        if (rand() % 2 == 0) { // blue
+            min_red = MAX_RED_BLUE / 6;
+            max_red = MAX_RED_BLUE / 4;
+            min_blue = 7 * MAX_RED_BLUE / 8;
+            max_blue = MAX_RED_BLUE;
+            min_green = MAX_GREEN / 6;
+            max_green = 2 * MAX_GREEN / 5;
+        }
+        else { // purple
+            min_red = 5 * MAX_RED_BLUE / 6;
+            max_red = MAX_RED_BLUE;
+            min_blue = 5 * MAX_RED_BLUE / 6;
+            max_blue = MAX_RED_BLUE;
+            min_green = MAX_GREEN / 6;
+            max_green = 2 * MAX_GREEN / 5;
+        }
+    }
+    else { // white
+        min_red = 7 * MAX_RED_BLUE / 8;
+        max_red = MAX_RED_BLUE;
+        min_blue = 7 * MAX_RED_BLUE / 8;
+        max_blue = MAX_RED_BLUE;
+        min_green = 7 * MAX_GREEN / 8;
+        max_green = MAX_GREEN;
+    }
+
+    randomize_color(min_red, max_red, min_green, max_green, min_blue, max_blue);
+}
+
+
 /* Helper functions */
+void find_surround (int x, int y, int range, int *left_dist, int *right_dist, int *up_dist, int *down_dist) 
+{
+    // closest point left, right, up, and down of the given point
+    *left_dist = INVALID_VAL;
+    *right_dist = INVALID_VAL;
+    *up_dist = INVALID_VAL;
+    *down_dist = INVALID_VAL;
+
+    for (int i = 1; i < range; ++i) {
+        if ((*left_dist == INVALID_VAL) && (get_pixel(x - i, y) != BLACK || x - i < 0))
+            *left_dist = i;
+        if ((*right_dist == INVALID_VAL) && (get_pixel(x + i, y) != BLACK || x + i > RESOLUTION_X))
+            *right_dist = i;
+        if ((*up_dist == INVALID_VAL) && (get_pixel(x, y - i) != BLACK || x - i < 0))
+            *up_dist = i;
+        if ((*down_dist == INVALID_VAL) && (get_pixel(x, y + i) != BLACK || x + i > RESOLUTION_Y))
+            *down_dist = i;
+    }
+}
+
+double average_surround (int x, int y, int range) 
+{
+    // closest point left, right, up, and down of the given point
+    int left_dist, right_dist, up_dist, down_dist;
+    find_surround(x, y, range, &left_dist, &right_dist, &up_dist, &down_dist);
+
+    if (left_dist == INVALID_VAL) 
+        left_dist = range;
+    if (right_dist == INVALID_VAL) 
+        right_dist = range;
+    if (up_dist == INVALID_VAL) 
+        up_dist = range;
+    if (down_dist == INVALID_VAL) 
+        down_dist = range;
+
+    return (double)(left_dist + right_dist + up_dist + down_dist) / 3.0;
+}
 
 // P0(x0, y0) is the start (t = 0) and P2(x2, y2) is the end (t = 1)
 // P(tr) = (xt, yt) is a point on the curve at t = tr, 0 < tr < 1
