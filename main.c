@@ -75,8 +75,12 @@
 #define SW_MAX 64
 
 /* Constants for moving points and vector field */
+<<<<<<< HEAD
 #define FIELD_SCALE 70 // the higher, the less the field changes
 #define SPEED_SCALE 0.65
+=======
+#define FIELD_SCALE 60 // the higher, the less the field changes
+>>>>>>> 1e163a0 (Pause and change the speed when push buttons 1 and 2 are pressed. Draw cursor (in progress, still some bugs) and identify when the left mouse key is clicked.)
 
 /* Constants for stem growth */
 #define BEZ_CHANGE_FREQ 12 // 12 Bezier control point changes per growth
@@ -237,7 +241,9 @@ typedef struct Plant_List {
  * GLOBAL VARIABLES
  */
 int gTime;
-int speed;
+int speed, old_speed;
+double speed_scale, old_speed_scale;
+int mouse_x, mouse_y, old_mouse_x, old_mouse_y;
 
 volatile int pixel_buffer_start;
 
@@ -348,6 +354,14 @@ int main(void)
 
     // initialize speed
     speed = 1;
+    speed_scale = 0.6;
+
+    // initialize mouse position
+    mouse_x = 0;
+    mouse_y = 0;
+    old_mouse_x = 0;
+    old_mouse_y = 0;
+
 
     set_A9_IRQ_stack();      // initialize the stack pointer for IRQ mode
     config_GIC();            // configure the general interrupt controller
@@ -668,8 +682,8 @@ void move_point_in_vec_field (Moving_Point *point, double dir_factor)
         point->reverse_x *= -1;
     if (point->y <= 0 || point->y >= RESOLUTION_Y)
         point->reverse_y *= -1; 
-    point->x += SPEED_SCALE * point->x_dir * point->reverse_x;
-    point->y += SPEED_SCALE * point->y_dir * point->reverse_y;
+    point->x += speed_scale * point->x_dir * point->reverse_x;
+    point->y += speed_scale * point->y_dir * point->reverse_y;
 
     // if would be beyond bounds, fix within bounds
     if (point->x < 0) point->x = 0;
@@ -1362,19 +1376,27 @@ void pushbutton_ISR(void)
     }
     else if (press & 0x2) { // KEY1
         // pause or un-pause the program
-        if (speed == 0)
-            speed = 1;
-        else
+        if (speed == 0) {
+            speed = old_speed;
+            speed_scale = old_speed_scale;
+        }
+        else {
+            old_speed = speed;
+            old_speed_scale = speed_scale;
             speed = 0;
+            speed_scale = 0;
+        }
     }
     else if (press & 0x4) { // KEY2
-        // increase the speed - work in progress
-        /*if (speed > 10) {
-            speed = 1;
-            SPEED_SCALE = 0.5;
-        }
+        // increase the speed
         speed *= 2;
-        SPEED_SCALE *= 2;*/
+        speed_scale *= 2;
+
+        // check if the speed is too high and reset speed
+        if (speed > 6) {
+            speed = 1;
+            speed_scale = 0.6;
+        }
     }
     else { // press & 0x8, which is KEY3
         change_colors(); // change the colours of the flower and stem
@@ -1383,26 +1405,70 @@ void pushbutton_ISR(void)
 
 void PS2_ISR(void)
 {
-    printf ("mouse clicked\n");
     // PS2 base address
     volatile int * PS2_ptr = (int *) PS2_BASE;
 
     *(PS2_ptr + 1) = 0x1; // clear the interrupt
 
     int PS2_data, RVALID;
-    char mouse;
+    unsigned char byte1 = 0;
+    unsigned char byte2 = 0;
+    unsigned char byte3 = 0;
 
+	printf ("inside ISR\n");
     while(1) {
         PS2_data = *(PS2_ptr); // read the Data register in the PS/2 port
         RVALID = PS2_data & 0x8000; // extract the RVALID field
 
         if (RVALID) {
-            mouse = PS2_data & 0xFF;
+            byte1 = byte2;
+            byte2 = byte3;
+            byte3 = PS2_data & 0xFF;
+			printf ("%d\n", byte3);
         }
         else {
             break;
         }
     }
+	
+	if (old_mouse_x != NULL && old_mouse_y != NULL)
+	    plot_ellipse(old_mouse_x, old_mouse_y, 3, 3, BLACK); // erase old mouse
+	
+	old_mouse_x = mouse_x;
+    old_mouse_y = mouse_y;
+
+	// add or subtract to current x position
+	if (byte1 & 0x10)
+		mouse_x -= byte2;
+	else
+		mouse_x += byte2;
+
+	// add or subtract to current y position
+	if (byte1 & 0x20)
+		mouse_y -= byte3;
+	else
+		mouse_y += byte3;
+	
+	// check if mouse went out of bounds
+	if (mouse_x < 0)
+		mouse_x = 0;
+	else if (mouse_x > RESOLUTION_X)
+		mouse_x = RESOLUTION_X;
+	
+	if (mouse_y < 0)
+		mouse_y = 0;
+	else if (mouse_y > RESOLUTION_Y)
+		mouse_y = RESOLUTION_Y;
+
+    
+    if (mouse_x != NULL && mouse_y != NULL)
+	    plot_ellipse(mouse_x, mouse_y, 3, 3, WHITE); // draw new mouse
+
+	printf ("%d, %d -- %d, %d, %d\n", mouse_x, mouse_y, byte1, byte2, byte3);
+
+	if (byte1 & 0x1) {
+		printf ("mouse clicked\n");
+	}
 }
 
 /* Set up interrupts, 
