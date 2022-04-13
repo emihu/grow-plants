@@ -98,8 +98,8 @@
 #define STEM_ADD_PERIOD_DEVIATION 20 // how much the period may deviate from base in either direction
 
 /* Stem repelling from other pixels constants */
-#define REPEL_RANGE 12 // how far a stem can be affected by repelling
-#define REPEL_STRENGTH 1.5 // fastest speed change that repelling can cause
+#define REPEL_RANGE 13 // how far a stem can be affected by repelling
+#define REPEL_STRENGTH 1.75 // fastest speed change that repelling can cause
 
 /* Flower growth constants */
 #define FLOWER_SIZE_RANGE 21
@@ -119,6 +119,7 @@
 #define DARK_COLOR_CHANGE 4
 #define DARK_CENTER 0x1860
 #define YELLOW_CENTER 0xFFE0
+#define BRANCH_COLOR_CHANGE 4
 
 /* Boolean constants */
 #define FALSE 0
@@ -138,6 +139,8 @@ typedef struct Moving_Point Moving_Point;
 typedef struct D_Point D_Point;
 typedef struct Stem_Node Stem_Node;
 typedef struct Stem_List Stem_List;
+typedef struct Plant_Node Plant_Node;
+typedef struct Plant_List Plant_List;
 
 
 /*
@@ -219,6 +222,16 @@ typedef struct Stem_List {
     Stem_Node * tail;
 } Stem_List;
 
+typedef struct Plant_Node {
+    Stem_List * stem;
+    struct Plant_Node * next;
+} Plant_Node;
+
+typedef struct Plant_List {
+    Plant_Node * head;
+    Plant_Node * tail;
+} Plant_List;
+
 
 /*
  * GLOBAL VARIABLES
@@ -257,10 +270,16 @@ void init_stem_list (Stem_List *list, double x, double y, short int color, short
 int get_stem_length (int num_branches);
 short int is_branchable (int num_branches);
 int get_stem_growth_period ();
+void init_plant_list (Plant_List *list);
+void init_plant_node (Plant_Node *node, double x, double y);
 
 /* Operate on stem list */
 void add_stem_node (Stem_List *list, double x, double y, double bez_x, double bez_y, short int rev_x, short int rev_y);
 void free_stem_list (Stem_List *list);
+
+/* Operate on plant list */
+void add_plant_node (Plant_List *list, double x, double y);
+void free_plant_list (Plant_List *list);
 
 /* Draw stem */
 void draw_stem (Stem_List *list);
@@ -317,24 +336,7 @@ void find_surround (int x, int y, int range, int *left_dist, int *right_dist, in
 double average_surround (int x, int y, int range);
 
 
-Stem_List test_stem;
-
-
-void init_stem () 
-{
-    int start_x = rand() % RESOLUTION_X;
-    int start_y = rand() % RESOLUTION_Y;
-
-    short int color = randomize_color(STEM_MIN_RED, STEM_MAX_RED, STEM_MIN_GREEN, STEM_MAX_GREEN, STEM_MIN_BLUE, STEM_MAX_BLUE);
-    short int flower_color = randomize_flower_color();
-    short int flower_center_color = (rand() % 2 == 0) ? DARK_CENTER : YELLOW_CENTER;
-    short int border_color = darkify_color(flower_color);
-
-    init_stem_list(&test_stem, start_x, start_y, color, flower_color, flower_center_color, border_color, 0);
-    
-    add_stem_node(&test_stem, start_x, start_y, INVALID_VAL, INVALID_VAL, 1, 1);
-}
-
+Plant_List plants;
 
 /*
  * FUNCTION DEFINITIONS
@@ -357,11 +359,18 @@ int main(void)
 
     set_pixel_buffers();     // set up the pixel buffers
 
-    init_stem ();
+    init_plant_list(&plants);
+    add_plant_node(&plants, rand() % RESOLUTION_X, rand() % RESOLUTION_Y);
+    add_plant_node(&plants, rand() % RESOLUTION_X, rand() % RESOLUTION_Y);
+    add_plant_node(&plants, rand() % RESOLUTION_X, rand() % RESOLUTION_Y);
 
     while (1)
     {
-        draw_stem (&test_stem);
+        Plant_Node *n = plants.head;
+        while (n != NULL) {
+            draw_stem (n->stem);
+            n = n->next;
+        }
 
         wait_for_vsync(); // swap front and back buffers on VGA vertical sync
         pixel_buffer_start = *(pixel_ctrl_ptr + 1); // new back buffer
@@ -460,6 +469,30 @@ int get_stem_growth_period ()
     return period;
 }
 
+void init_plant_list (Plant_List *list)
+{
+    list->head = NULL;
+    list->tail = NULL;
+}
+
+void init_plant_node (Plant_Node *node, double x, double y)
+{
+    Stem_List * new_stem = (Stem_List*) malloc(sizeof(Stem_List));
+    if (new_stem == NULL) // check if enough memory to allocate
+        return;
+    
+    short int color = randomize_color(STEM_MIN_RED, STEM_MAX_RED, STEM_MIN_GREEN, STEM_MAX_GREEN, STEM_MIN_BLUE, STEM_MAX_BLUE);
+    short int flower_color = randomize_flower_color();
+    short int flower_center_color = (rand() % 2 == 0) ? DARK_CENTER : YELLOW_CENTER;
+    short int border_color = darkify_color(flower_color);
+    
+    init_stem_list(new_stem, x, y, color, flower_color, flower_center_color, border_color, 0);
+    add_stem_node(new_stem, x, y, INVALID_VAL, INVALID_VAL, 1, 1);
+
+    node->stem = new_stem;
+    node->next = NULL;
+}
+
 
 /* Operate on stem list */
 void add_stem_node (Stem_List *list, double x, double y, double bez_x, double bez_y, short int rev_x, short int rev_y) 
@@ -485,13 +518,46 @@ void add_stem_node (Stem_List *list, double x, double y, double bez_x, double be
 
 void free_stem_list (Stem_List *list) 
 {
-    while(list->head != NULL) {
+    while (list->head != NULL) {
+        if (list->head->branching_stem != NULL) // free node's branching stems
+            free_stem_list(list->head->branching_stem);
 		Stem_Node *new_head = list->head->next; // node after head
 	    free(list->head); // free memory used by current head
         list->head = new_head;
 	}
     list->length = 0;
 	list->head = NULL; // list is now empty
+    list->tail = NULL;
+}
+
+
+/* Operate on plant list */
+void add_plant_node (Plant_List *list, double x, double y)
+{
+    Plant_Node *new_node = (Plant_Node*) malloc(sizeof(Plant_Node));
+    if (new_node == NULL) // check if enough memory to allocate
+        return;
+    
+    init_plant_node(new_node, x, y);
+
+    if (list->head == NULL) { // list is empty, create first node
+        list->head = new_node;
+        list->tail = new_node;
+        return;
+    }
+
+    list->tail->next = new_node; // attach new node to end of list
+    list->tail = list->tail->next; // update tail of list
+}
+
+void free_plant_list (Plant_List *list)
+{
+    while (list->head != NULL) {
+        Plant_Node *new_head = list->head->next;
+        free(list->head);
+        list->head = new_head;
+    }
+    list->head = NULL;
     list->tail = NULL;
 }
 
@@ -537,7 +603,7 @@ void draw_stem_nodes (Stem_List *list, short int color)
         plot_quad_bezier((int)(n->point).x, (int)(n->point).y, 
                          (int)(n->next->bez_ctr_point).x, (int)(n->next->bez_ctr_point).y,
                          (int)(n->next->point).x, (int)(n->next->point).y,
-                         test_stem.color);
+                         list->color); 
         n = n->next;
     }
 }
@@ -742,7 +808,7 @@ void branch_stem (Stem_List *list)
                 Stem_List * new_list = (Stem_List*) malloc(sizeof(Stem_List));
                 if (new_list == NULL) // check if enough memory to allocate
                     return;
-                short int flower_color = randomize_color_change(list->flower_color, 3, 3, 3);
+                short int flower_color = randomize_color_change(list->flower_color, BRANCH_COLOR_CHANGE, BRANCH_COLOR_CHANGE/2, BRANCH_COLOR_CHANGE);
                 init_stem_list(new_list, n->point.x, n->point.y, list->color, flower_color, list->flower_center_color, darkify_color(flower_color), list->num_branches + 1);
                 add_stem_node(new_list, n->point.x, n->point.y, INVALID_VAL, INVALID_VAL, n->point.reverse_x, n->point.reverse_y);
                 
