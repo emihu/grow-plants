@@ -241,6 +241,8 @@ int speed;
 
 volatile int pixel_buffer_start;
 
+Plant_List plants;
+
 
 /*
  * FUNCTION DECLARATIONs
@@ -336,8 +338,6 @@ void find_surround (int x, int y, int range, int *left_dist, int *right_dist, in
 double average_surround (int x, int y, int range);
 
 
-Plant_List plants;
-
 /*
  * FUNCTION DEFINITIONS
  */
@@ -366,7 +366,7 @@ int main(void)
 
     while (1)
     {
-        Plant_Node *n = plants.head;
+        Plant_Node *n = plants.head; // draw all the plants in the plant list
         while (n != NULL) {
             draw_stem (n->stem);
             n = n->next;
