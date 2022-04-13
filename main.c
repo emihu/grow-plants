@@ -75,12 +75,7 @@
 #define SW_MAX 64
 
 /* Constants for moving points and vector field */
-<<<<<<< HEAD
 #define FIELD_SCALE 70 // the higher, the less the field changes
-#define SPEED_SCALE 0.65
-=======
-#define FIELD_SCALE 60 // the higher, the less the field changes
->>>>>>> 1e163a0 (Pause and change the speed when push buttons 1 and 2 are pressed. Draw cursor (in progress, still some bugs) and identify when the left mouse key is clicked.)
 
 /* Constants for stem growth */
 #define BEZ_CHANGE_FREQ 12 // 12 Bezier control point changes per growth
