@@ -627,11 +627,11 @@ void draw_old_stem_flower (Stem_List *list)
     short int size = list->old_flower_size; 
     if (size < 14)
         plot_ellipse(point.x, point.y, size/6 + 2, size/6 + 2, BLACK, BLACK);
-    else if (size < 16)
+    else if (size < 17)
         draw_flower(point.x, point.y, BLACK, BLACK, BLACK, 1);
-    else if (size < 18)
+    else if (size < 20)
         draw_flower(point.x, point.y, BLACK, BLACK, BLACK, 2);
-    else if (size < 22)
+    else if (size < 23)
         draw_flower(point.x, point.y, BLACK, BLACK, BLACK, 3);
     else if (size < 25)
         draw_flower(point.x, point.y, BLACK, BLACK, BLACK, 4);
@@ -1500,13 +1500,13 @@ void mouse_input (volatile int * PS2_ptr)
         PS2_data = *(PS2_ptr); // read the Data register in the PS/2 port
         RVALID = PS2_data & 0x8000; // extract the RVALID field
 
-        if (RVALID) {
+        if (RVALID != 0) {
             byte1 = byte2;
             byte2 = byte3;
             byte3 = PS2_data & 0xFF;
 			printf ("%d\n", byte3);
-            if ((byte2 == (char) 0xAA) && (byte3 == (char) 0x00))
-                *(PS2_ptr) = 0xFA;
+            if ((byte2 == (char) 0xEA) && (byte3 == (char) 0x00))
+                *(PS2_ptr) = 0xEA;
         }
         else {
             break;
