@@ -283,12 +283,7 @@ void draw_branching_stems_rec (Stem_List *list);
 void update_flower_size (Stem_List *list);
 void set_flower_size (Stem_List *list);
 
-/* Draw and animate flowers */
-void init_flowers();
-void move_flowers();
-void update_old_flowers();
-void clear_flowers();
-void draw_all_flowers();
+/* Draw flower */
 void draw_flower(int x, int y, short int petal_color, short int center_color, short int border_color, short int size);
 
 /* Draw simple shapes and lines */
@@ -863,40 +858,40 @@ void draw_stem (Stem_List *list)
 }
 
 
-/* Draw and animate flowers */
+/* Draw flower */
 void draw_flower (int x, int y, short int petal_color, short int center_color, short int border_color, short int size) {
 	int radius = 3;
 
     // draw the petals
     if (size >= 5) { // fifth layer of petals
-        plot_ellipse(x + radius*1.5, y + radius*3.5, radius*1.75, radius*1.75, petal_color, border_color);
-        plot_ellipse(x - radius*1.5, y + radius*3.5, radius*1.75, radius*1.75, petal_color, border_color);
-        plot_ellipse(x + radius*1.5, y - radius*3.5, radius*1.75, radius*1.75, petal_color, border_color);
-        plot_ellipse(x - radius*1.5, y - radius*3.5, radius*1.75, radius*1.75, petal_color, border_color);
+        plot_ellipse(x + (radius*1.5), y + (radius*3.5), radius*1.75, radius*1.75, petal_color, border_color);
+        plot_ellipse(x - (radius*1.5), y + (radius*3.5), radius*1.75, radius*1.75, petal_color, border_color);
+        plot_ellipse(x + (radius*1.5), y - (radius*3.5), radius*1.75, radius*1.75, petal_color, border_color);
+        plot_ellipse(x - (radius*1.5), y - (radius*3.5), radius*1.75, radius*1.75, petal_color, border_color);
 
-        plot_ellipse(x + radius*3.5, y + radius*1.5, radius*1.75, radius*1.75, petal_color, border_color);
-        plot_ellipse(x - radius*3.5, y + radius*1.5, radius*1.75, radius*1.75, petal_color, border_color);
-        plot_ellipse(x + radius*3.5, y - radius*1.5, radius*1.75, radius*1.75, petal_color, border_color);
-        plot_ellipse(x - radius*3.5, y - radius*1.5, radius*1.75, radius*1.75, petal_color, border_color);
+        plot_ellipse(x + (radius*3.5), y + (radius*1.5), radius*1.75, radius*1.75, petal_color, border_color);
+        plot_ellipse(x - (radius*3.5), y + (radius*1.5), radius*1.75, radius*1.75, petal_color, border_color);
+        plot_ellipse(x + (radius*3.5), y - (radius*1.5), radius*1.75, radius*1.75, petal_color, border_color);
+        plot_ellipse(x - (radius*3.5), y - (radius*1.5), radius*1.75, radius*1.75, petal_color, border_color);
     }
 
     if (size >= 4) { // fourth layer of petals
-        plot_ellipse(x + 3 * radius, y, radius*1.5, radius*1.5, petal_color, border_color);
-        plot_ellipse(x - 3 * radius, y, radius*1.5, radius*1.5, petal_color, border_color);
-        plot_ellipse(x, y + 3 * radius, radius*1.5, radius*1.5, petal_color, border_color);
-        plot_ellipse(x, y - 3 * radius, radius*1.5, radius*1.5, petal_color, border_color);
+        plot_ellipse(x + (3*radius), y, radius*1.5, radius*1.5, petal_color, border_color);
+        plot_ellipse(x - (3*radius), y, radius*1.5, radius*1.5, petal_color, border_color);
+        plot_ellipse(x, y + (3*radius), radius*1.5, radius*1.5, petal_color, border_color);
+        plot_ellipse(x, y - (3*radius), radius*1.5, radius*1.5, petal_color, border_color);
 
-        plot_ellipse(x + 2 * radius, y + 2 * radius, radius*1.5, radius + 1, petal_color, border_color);
-        plot_ellipse(x - 2 * radius, y + 2 * radius, radius*1.5, radius + 1, petal_color, border_color);
-        plot_ellipse(x + 2 * radius, y - 2 * radius, radius*1.5, radius + 1, petal_color, border_color);
-        plot_ellipse(x - 2 * radius, y - 2 * radius, radius*1.5, radius + 1, petal_color, border_color);
+        plot_ellipse(x + (2*radius), y + (2*radius), radius*1.5, radius*1.5, petal_color, border_color);
+        plot_ellipse(x - (2*radius), y + (2*radius), radius*1.5, radius*1.5, petal_color, border_color);
+        plot_ellipse(x + (2*radius), y - (2*radius), radius*1.5, radius*1.5, petal_color, border_color);
+        plot_ellipse(x - (2*radius), y - (2*radius), radius*1.5, radius*1.5, petal_color, border_color);
     }
 
     if (size >= 3) { // third layer of petals
-        plot_ellipse(x + (radius*0.75), y + 2 * radius, radius, radius, petal_color, border_color);
-        plot_ellipse(x - (radius*0.75), y + 2 * radius, radius, radius, petal_color, border_color);
-        plot_ellipse(x + (radius*0.75), y - 2 * radius, radius, radius, petal_color, border_color);
-        plot_ellipse(x - (radius*0.75), y - 2 * radius, radius, radius, petal_color, border_color);
+        plot_ellipse(x + (radius*0.75), y + (2*radius), radius, radius, petal_color, border_color);
+        plot_ellipse(x - (radius*0.75), y + (2*radius), radius, radius, petal_color, border_color);
+        plot_ellipse(x + (radius*0.75), y - (2*radius), radius, radius, petal_color, border_color);
+        plot_ellipse(x - (radius*0.75), y - (2*radius), radius, radius, petal_color, border_color);
 
         plot_ellipse(x + 2 * radius, y + (radius*0.75), radius, radius, petal_color, border_color);
         plot_ellipse(x - 2 * radius, y + (radius*0.75), radius, radius, petal_color, border_color);
