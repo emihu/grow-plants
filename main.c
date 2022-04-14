@@ -238,7 +238,8 @@ typedef struct Plant_List {
 int gTime;
 int speed, old_speed;
 double speed_scale, old_speed_scale;
-int mouse_x, mouse_y, old_mouse_x, old_mouse_y;
+short int clear_all_flag, pause_program_flag, change_speed_flag, mouse_clicked_flag;
+int mouse_x, mouse_y, old_mouse_x, old_mouse_y, PS2_mouse_x, PS2_mouse_y;
 
 volatile int pixel_buffer_start;
 
@@ -341,6 +342,90 @@ void find_surround (int x, int y, int range, int *left_dist, int *right_dist, in
 double average_surround (int x, int y, int range);
 
 
+void initialize_values ()
+{
+    // initialize speed
+    speed = 1;
+    speed_scale = 0.6;
+
+    // initialize push button flags
+    clear_all_flag = FALSE;
+    pause_program_flag = FALSE;
+    change_speed_flag = FALSE;
+    mouse_clicked_flag = FALSE;
+
+    // initialize mouse position
+    mouse_x = 0;
+    mouse_y = 0;
+    old_mouse_x = 0;
+    old_mouse_y = 0;
+    PS2_mouse_x = 0;
+    PS2_mouse_y = 0;
+}
+
+void draw_mouse ()
+{
+    if (old_mouse_x != 0 && old_mouse_y != 0)
+        plot_ellipse(old_mouse_x, old_mouse_y, 2, 2, BLACK, BLACK); // erase old mouse
+        
+    old_mouse_x = mouse_x;
+    old_mouse_y = mouse_y;
+    mouse_x = PS2_mouse_x;
+    mouse_y = PS2_mouse_y;
+
+    if (mouse_x != 0 && mouse_y != 0)
+        plot_ellipse(mouse_x, mouse_y, 2, 2, WHITE, BLACK); // draw new mouse
+}
+
+void pause_program ()
+{
+    if (pause_program_flag == TRUE) {
+        pause_program_flag = FALSE;
+        if (speed == 0) {
+            speed = old_speed;
+            speed_scale = old_speed_scale;
+        }
+        else {
+            old_speed = speed;
+            old_speed_scale = speed_scale;
+            speed = 0;
+            speed_scale = 0;
+        }
+    }
+}
+
+void clear_program ()
+{
+    if (clear_all_flag == TRUE) {
+        clear_all_flag = FALSE;
+        clear_all();
+    }
+}
+
+void change_program_speed ()
+{
+    if (change_speed_flag == TRUE) {
+        change_speed_flag = FALSE;
+        // increase the speed
+        speed *= 2;
+        speed_scale *= 1.2;
+
+        // check if the speed is too high and reset speed
+        if (speed > 6) {
+            speed = 1;
+            speed_scale = 0.6;
+        }
+    }
+}
+
+void mouse_clicked ()
+{
+    if (mouse_clicked_flag == TRUE) {
+        mouse_clicked_flag = FALSE;
+        add_plant_node(&plants, mouse_x, mouse_y);
+    }
+}
+
 /*
  * FUNCTION DEFINITIONS
  */
@@ -349,16 +434,7 @@ int main(void)
     volatile int * pixel_ctrl_ptr = (int *)PIXEL_BUF_CTRL_BASE;
     volatile int * SW_ptr = (int *)SW_BASE;
 
-    // initialize speed
-    speed = 1;
-    speed_scale = 0.6;
-
-    // initialize mouse position
-    mouse_x = 0;
-    mouse_y = 0;
-    old_mouse_x = 0;
-    old_mouse_y = 0;
-
+    initialize_values();
 
     set_A9_IRQ_stack();      // initialize the stack pointer for IRQ mode
     config_GIC();            // configure the general interrupt controller
@@ -366,22 +442,30 @@ int main(void)
     config_KEYs();           // configure pushbutton KEYs to generate interrupts
     config_PS2();            // configure mouse input (PS2) to generate interrupts
     
-    enable_A9_interrupts();  // enable interrupts
-
     set_pixel_buffers();     // set up the pixel buffers
 
+    enable_A9_interrupts();  // enable interrupts
+
     init_plant_list(&plants);
-    add_plant_node(&plants, rand() % RESOLUTION_X, rand() % RESOLUTION_Y);
-    add_plant_node(&plants, rand() % RESOLUTION_X, rand() % RESOLUTION_Y);
-    add_plant_node(&plants, rand() % RESOLUTION_X, rand() % RESOLUTION_Y);
+    for (int i = 0; i < 3; i++) {
+        add_plant_node(&plants, rand() % RESOLUTION_X, rand() % RESOLUTION_Y);
+    }
 
     while (1)
     {
+        mouse_clicked();
+
+        pause_program();
+        clear_program();
+        change_program_speed();
+
         Plant_Node *n = plants.head; // draw all the plants in the plant list
         while (n != NULL) {
             draw_stem (n->stem);
             n = n->next;
         }
+        
+        draw_mouse();
 
         wait_for_vsync(); // swap front and back buffers on VGA vertical sync
         pixel_buffer_start = *(pixel_ctrl_ptr + 1); // new back buffer
@@ -1405,32 +1489,14 @@ void pushbutton_ISR(void)
 
     if (press & 0x1) { // KEY0
         // reset the animation
-        clear_all();
-        // free all of the linked lists and clear the global var + arrays
+        clear_all_flag = TRUE;
     }
     else if (press & 0x2) { // KEY1
         // pause or un-pause the program
-        if (speed == 0) {
-            speed = old_speed;
-            speed_scale = old_speed_scale;
-        }
-        else {
-            old_speed = speed;
-            old_speed_scale = speed_scale;
-            speed = 0;
-            speed_scale = 0;
-        }
+        pause_program_flag = TRUE;
     }
     else if (press & 0x4) { // KEY2
-        // increase the speed
-        speed *= 2;
-        speed_scale *= 2;
-
-        // check if the speed is too high and reset speed
-        if (speed > 6) {
-            speed = 1;
-            speed_scale = 0.6;
-        }
+        change_speed_flag = TRUE;
     }
     else { // press & 0x8, which is KEY3
         change_plant_colors(&plants); // change the colours of the flower and stem
@@ -1446,11 +1512,10 @@ void PS2_ISR(void)
 
     int PS2_data, RVALID;
     unsigned char byte1 = 0;
-    unsigned char byte2 = 0;
-    unsigned char byte3 = 0;
+    unsigned char byte2 = 0; // X movement
+    unsigned char byte3 = 0; // Y movement
 
-	printf ("inside ISR\n");
-    while(1) {
+    while (1) {
         PS2_data = *(PS2_ptr); // read the Data register in the PS/2 port
         RVALID = PS2_data & 0x8000; // extract the RVALID field
 
@@ -1464,44 +1529,39 @@ void PS2_ISR(void)
             break;
         }
     }
-	
-	if (old_mouse_x != NULL && old_mouse_y != NULL)
-	    plot_ellipse(old_mouse_x, old_mouse_y, 3, 3, BLACK, BLACK); // erase old mouse
-	
-	old_mouse_x = mouse_x;
-    old_mouse_y = mouse_y;
+
+    // adjust for two's complement in the X and Y movement
+    if (byte2 & 0x80) // if 8th bit is 1, then is negative
+        byte2 = abs(256 - byte2);
+    if (byte3 & 0x80) // if 8th bit is 1, then is negative
+        byte3 = abs(256 - byte3);
 
 	// add or subtract to current x position
-	if (byte1 & 0x10)
-		mouse_x -= byte2;
+	if (byte1 & 0x10) // bit 4 (X sign bit)
+		PS2_mouse_x -= byte2;
 	else
-		mouse_x += byte2;
+		PS2_mouse_x += byte2;
 
 	// add or subtract to current y position
 	if (byte1 & 0x20)
-		mouse_y -= byte3;
+		PS2_mouse_y -= byte3;
 	else
-		mouse_y += byte3;
+		PS2_mouse_y += byte3;
 	
 	// check if mouse went out of bounds
-	if (mouse_x < 0)
-		mouse_x = 0;
-	else if (mouse_x > RESOLUTION_X)
-		mouse_x = RESOLUTION_X;
+	if (PS2_mouse_x < 0)
+		PS2_mouse_x = 0;
+	else if (PS2_mouse_x > RESOLUTION_X)
+		PS2_mouse_x = RESOLUTION_X;
 	
-	if (mouse_y < 0)
-		mouse_y = 0;
-	else if (mouse_y > RESOLUTION_Y)
-		mouse_y = RESOLUTION_Y;
-
+	if (PS2_mouse_y < 0)
+		PS2_mouse_y = 0;
+	else if (PS2_mouse_y > RESOLUTION_Y)
+		PS2_mouse_y = RESOLUTION_Y;
     
-    if (mouse_x != NULL && mouse_y != NULL)
-	    plot_ellipse(mouse_x, mouse_y, 3, 3, WHITE, BLACK); // draw new mouse
-
-	printf ("%d, %d -- %d, %d, %d\n", mouse_x, mouse_y, byte1, byte2, byte3);
-
+    // detect if mouse was clicked
 	if (byte1 & 0x1) {
-		printf ("mouse clicked\n");
+		mouse_clicked_flag = TRUE;
 	}
 }
 
