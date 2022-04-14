@@ -71,6 +71,7 @@
 
 /* Constants for animation */
 #define NUM_STARTING_PLANTS 3
+#define DEFAULT_SPEED 0.3
 
 /* Constants for moving points and vector field */
 #define FIELD_SCALE 70 // the higher, the less the field changes
@@ -367,7 +368,7 @@ void init_start_values ()
 {
     // initialize speed
     speed = 1;
-    speed_scale = 0.6;
+    speed_scale = DEFAULT_SPEED;
 
     // initialize push button flags
     clear_all_flag = FALSE;
@@ -1414,15 +1415,15 @@ void change_program_speed ()
         // change the speed
         if (speed == 1) {
             speed = 2;
-            speed_scale = 1;
+            speed_scale = DEFAULT_SPEED * 2;
         }
         else if (speed == 2) {
             speed = 3;
-            speed_scale = 1.4;
+            speed_scale = DEFAULT_SPEED * 3;
         }
         else if (speed == 3) {
             speed = 1;
-            speed_scale = 0.6;
+            speed_scale = DEFAULT_SPEED;
         }
     }
 }
