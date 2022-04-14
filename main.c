@@ -319,8 +319,8 @@ void plot_line(int x0, int y0, int x1, int y1, short int line_color);
 void plot_ellipse(int x0, int y0, int r1, int r2, short int color, short int border_color);
 void plot_quad_bezier_seg(int x0, int y0, int x1, int y1, int x2, int y2, short int line_color);
 void plot_quad_bezier(int x0, int y0, int x1, int y1, int x2, int y2, short int line_color);
-void change_colors();
-void clear_screen();
+void clear_screen ();
+void clear_all ();
 
 /* Colour changing functions */
 // returns a random colour based on parameters limiting the amount of red, green, and blue, 
@@ -329,6 +329,8 @@ short int randomize_color (short int min_red, short int max_red, short int min_g
 short int randomize_color_change (short int color, short int red_change, short int green_change, short int blue_change);
 short int darkify_color (short int color);
 short int randomize_flower_color ();
+void change_plant_colors (Plant_List *list);
+void change_stem_colors (Stem_List *list, short int color, short int flower_color, short int flower_center_color);
 
 /* Helper functions */
 void swap (int *first, int *second);
@@ -1106,18 +1108,7 @@ void plot_quad_bezier(int x0, int y0, int x1, int y1, int x2, int y2, short int 
     plot_quad_bezier_seg(x0, y0, x1, y1, x2, y2, line_color); // remaining part
 }
 
-void change_colors()
-{
-    /*
-    for (int i = 0; i < sizeof(flowers)/sizeof(flowers[0]); i++) {
-        flowers[i].petal_color = (short int)(rand() % 0xFFFF);
-        flowers[i].center_color = (short int)(rand() % 0xFFFF);
-        old_flowers[i].petal_color = flowers[i].petal_color;
-        old_flowers[i].center_color = flowers[i].center_color;
-    }*/
-}
-
-void clear_screen()
+void clear_screen ()
 {
     for (int x = 0; x < RESOLUTION_X; ++x) {
         for (int y = 0; y < RESOLUTION_Y; ++y) {
@@ -1244,6 +1235,40 @@ short int randomize_flower_color ()
     }
 
     randomize_color(min_red, max_red, min_green, max_green, min_blue, max_blue);
+}
+
+void change_plant_colors (Plant_List *list)
+{
+    Plant_Node *plant = list->head; // go through all plants
+    while (plant != NULL) {
+        change_stem_colors(plant->stem, BLACK, BLACK, BLACK);
+        plant = plant->next;
+    }
+}
+
+void change_stem_colors (Stem_List *list, short int color, short int flower_color, short int flower_center_color)
+{
+    if (list->num_branches == 0) { // no branches, new colours
+        color = randomize_color(STEM_MIN_RED, STEM_MAX_RED, STEM_MIN_GREEN, STEM_MAX_GREEN, STEM_MIN_BLUE, STEM_MAX_BLUE);
+        flower_color = randomize_flower_color();
+        flower_center_color = (rand() % 2 == 0) ? DARK_CENTER : YELLOW_CENTER;
+    }
+    else {
+        flower_color = randomize_color_change(flower_color, BRANCH_COLOR_CHANGE, BRANCH_COLOR_CHANGE/2, BRANCH_COLOR_CHANGE);
+    }
+    short int border_color = darkify_color(flower_color);
+
+    list->color = color;
+    list->flower_color = flower_color;
+    list->flower_center_color = flower_center_color;
+    list->border_color = border_color;
+
+    Stem_Node *node = list->head;
+    while (node != NULL) {
+        if (node->branching_stem != NULL)
+            change_stem_colors(node->branching_stem, color, flower_color, flower_center_color);
+        node = node->next;
+    }
 }
 
 
@@ -1408,7 +1433,7 @@ void pushbutton_ISR(void)
         }
     }
     else { // press & 0x8, which is KEY3
-        change_colors(); // change the colours of the flower and stem
+        change_plant_colors(&plants); // change the colours of the flower and stem
     }
 }
 
@@ -1584,7 +1609,7 @@ void config_KEYs(void)
 // Setup the PS2 for mouse input
 void config_PS2(void)
 {
-    volatile int * PS2_ptr = (int *)PS2_BASE;; // PS2 address
+    volatile int * PS2_ptr = (int *)PS2_BASE; // PS2 address
     *(PS2_ptr) = 0xFF; // reset
     *(PS2_ptr + 1) = 0x1; // enable interrupts from the PS2 port
 }
