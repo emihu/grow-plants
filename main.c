@@ -42,12 +42,14 @@
 #define INTERVAL_TIMER_IRQ    72
 #define KEYS_IRQ              73
 #define PS2_IRQ               79
+#define PS2_IRQ_2             89
 
 /* Load value for A9 Private Timer */
 #define TIMER_LOAD            10000000       // 1/(100 MHz) x 1x10^7 = 0.1 sec
 
 /* PS/2 Port */
 #define PS2_BASE              0xFF200100
+#define PS2_BASE_2            0xFF200108
 
 /* VGA colors */
 #define WHITE                 0xFFFF
@@ -233,6 +235,8 @@ void enable_A9_interrupts(void);
 void interval_timer_ISR(void);
 void pushbutton_ISR(void);
 void PS2_ISR(void);
+void PS2_ISR_2(void);
+void mouse_input (volatile int * PS2_ptr);
 
 /* Modify program from interrupts */
 void pause_program ();
@@ -1485,17 +1489,12 @@ void pushbutton_ISR(void)
     }
 }
 
-void PS2_ISR(void)
+void mouse_input (volatile int * PS2_ptr) 
 {
-    // PS2 base address
-    volatile int * PS2_ptr = (int *) PS2_BASE;
-
-    *(PS2_ptr + 1) = 0x1; // clear the interrupt
-
     int PS2_data, RVALID;
-    unsigned char byte1 = 0;
-    unsigned char byte2 = 0; // X movement
-    unsigned char byte3 = 0; // Y movement
+    char byte1 = 0;
+    char byte2 = 0; // X movement
+    char byte3 = 0; // Y movement
 
     while (1) {
         PS2_data = *(PS2_ptr); // read the Data register in the PS/2 port
@@ -1506,6 +1505,8 @@ void PS2_ISR(void)
             byte2 = byte3;
             byte3 = PS2_data & 0xFF;
 			printf ("%d\n", byte3);
+            if ((byte2 == (char) 0xAA) && (byte3 == (char) 0x00))
+                *(PS2_ptr) = 0xFA;
         }
         else {
             break;
@@ -1547,6 +1548,26 @@ void PS2_ISR(void)
 	}
 }
 
+void PS2_ISR(void)
+{
+    // PS2 base address
+    volatile int * PS2_ptr = (int *) PS2_BASE;
+
+    *(PS2_ptr + 1) = 0x1; // clear the interrupt
+
+    mouse_input(PS2_ptr);
+}
+
+void PS2_ISR_2(void)
+{
+    // PS2 base address
+    volatile int * PS2_ptr_2 = (int *) PS2_BASE_2;
+
+    *(PS2_ptr_2 + 1) = 0x1; // clear the interrupt
+
+    mouse_input(PS2_ptr_2);
+}
+
 /* Set up interrupts, 
  * from the Intel® FPGA University Program DE1-SoC Computer Manual */
 
@@ -1577,6 +1598,7 @@ void config_GIC(void)
 
     /* Configure the PS2 interrupt */
     config_interrupt (79, 1);
+    config_interrupt (89, 1);
 
     // Set Interrupt Priority Mask Register (ICCPMR) and
     // Enable interrupts of all priorities
@@ -1654,6 +1676,10 @@ void config_PS2(void)
     volatile int * PS2_ptr = (int *)PS2_BASE; // PS2 address
     *(PS2_ptr) = 0xFF; // reset
     *(PS2_ptr + 1) = 0x1; // enable interrupts from the PS2 port
+
+    volatile int * PS2_ptr_2 = (int *)PS2_BASE_2; // PS2 address
+    *(PS2_ptr_2) = 0xFF; // reset
+    *(PS2_ptr_2 + 1) = 0x1; // enable interrupts from the PS2 port
 }
 
 // Turn on interrupts in the ARM processor
@@ -1681,6 +1707,8 @@ void __attribute__((interrupt)) __cs3_isr_irq(void)
         pushbutton_ISR();
     else if (interrupt_ID == PS2_IRQ)
         PS2_ISR();
+    else if (interrupt_ID == PS2_IRQ_2)
+        PS2_ISR_2();
     else
         while (1); // if unexpected, then stay here
     
