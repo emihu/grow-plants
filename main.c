@@ -70,9 +70,7 @@
 #define INVALID_VAL           -1
 
 /* Constants for animation */
-#define BOX_LEN 2
-#define NUM_BOXES 8
-#define SW_MAX 64
+#define NUM_STARTING_PLANTS 3
 
 /* Constants for moving points and vector field */
 #define FIELD_SCALE 70 // the higher, the less the field changes
@@ -145,34 +143,6 @@ typedef struct Plant_List Plant_List;
 /*
  * STRUCT DEFINITIONS
  */
-typedef struct Box_Info {
-    int x;                  // (x,y) positions
-    int y;
-    int x_dir;              // directions, either -1 or 1
-    int y_dir;
-    short int color;        // colour
-} Box_Info;
-
-typedef struct Flower_Info {
-    int x;                  // (x,y) positions
-    int y;
-    int x_dir;              // directions, either -1 or 1
-    int y_dir;
-    short int color;        // colour
-    short int size;         // size (number of petals)
-} Flower_Info;
-
-typedef struct Rand_Flower_Info {
-    double x;               // (x,y) positions
-    double y;
-    double x_dir;           // directions, either -1 or 1
-    double y_dir;
-    short int color;        // colour
-    short int size;         // size (number of petals)
-    int reverse_x;
-    int reverse_y;
-} Rand_Flower_Info;
-
 typedef struct Moving_Point {
     double x;               // (x,y) positions
     double y;
@@ -263,11 +233,19 @@ void interval_timer_ISR(void);
 void pushbutton_ISR(void);
 void PS2_ISR(void);
 
+/* Modify program from interrupts */
+void pause_program ();
+void clear_program ();
+void change_program_speed ();
+void mouse_clicked ();
+void draw_mouse ();
+
 /* Set up and manage pixel buffers */
 void set_pixel_buffers(void);
 void wait_for_vsync();
 
 /* Initialize structures */
+void init_start_values ();
 void init_moving_point (Moving_Point *point, double x, double y, short int rev_x, short int rev_y);
 void init_stem_node (Stem_Node *node, double x, double y, double bez_x, double bez_y, short int rev_x, short int rev_y, short int can_branch);
 void init_stem_list (Stem_List *list, double x, double y, short int color, short int flower_color, short int flower_center_color, short int border_color, int num_branches);
@@ -342,7 +320,55 @@ void find_surround (int x, int y, int range, int *left_dist, int *right_dist, in
 double average_surround (int x, int y, int range);
 
 
-void initialize_values ()
+/*
+ * FUNCTION DEFINITIONS
+ */
+int main(void)
+{
+    volatile int * pixel_ctrl_ptr = (int *)PIXEL_BUF_CTRL_BASE;
+    volatile int * SW_ptr = (int *)SW_BASE;
+
+    init_start_values();      // initialize starting global variables
+
+    set_A9_IRQ_stack();       // initialize the stack pointer for IRQ mode
+    config_GIC();             // configure the general interrupt controller
+    config_interval_timer();  // configure interval timer to generate interrupts
+    config_KEYs();            // configure pushbutton KEYs to generate interrupts
+    config_PS2();             // configure mouse input (PS2) to generate interrupts
+    
+    set_pixel_buffers();      // set up the pixel buffers
+
+    enable_A9_interrupts();   // enable interrupts
+
+    init_plant_list(&plants); // initialize linked list of plants
+
+    // start by adding plants to the list
+    for (int i = 0; i < NUM_STARTING_PLANTS; i++)
+        add_plant_node(&plants, rand() % RESOLUTION_X, rand() % RESOLUTION_Y);
+
+    while (1)
+    {
+        mouse_clicked();          // update the mouse coordinates
+        pause_program();          // KEY1 pressed
+        change_program_speed();   // KEY2 pressed
+        clear_program();          // KEY0 pressed
+
+        Plant_Node *n = plants.head; // draw all the plants in the plant list
+        while (n != NULL) {
+            draw_stem (n->stem);
+            n = n->next;
+        }
+        
+        draw_mouse();             // draw the mouse at mouse coordinates
+
+        wait_for_vsync(); // swap front and back buffers on VGA vertical sync
+        pixel_buffer_start = *(pixel_ctrl_ptr + 1); // new back buffer
+    }
+}
+
+
+/* Initialize structures */
+void init_start_values ()
 {
     // initialize speed
     speed = 1;
@@ -363,117 +389,6 @@ void initialize_values ()
     PS2_mouse_y = 0;
 }
 
-void draw_mouse ()
-{
-    if (old_mouse_x != 0 && old_mouse_y != 0)
-        plot_ellipse(old_mouse_x, old_mouse_y, 2, 2, BLACK, BLACK); // erase old mouse
-        
-    old_mouse_x = mouse_x;
-    old_mouse_y = mouse_y;
-    mouse_x = PS2_mouse_x;
-    mouse_y = PS2_mouse_y;
-
-    if (mouse_x != 0 && mouse_y != 0)
-        plot_ellipse(mouse_x, mouse_y, 2, 2, WHITE, BLACK); // draw new mouse
-}
-
-void pause_program ()
-{
-    if (pause_program_flag == TRUE) {
-        pause_program_flag = FALSE;
-        if (speed == 0) {
-            speed = old_speed;
-            speed_scale = old_speed_scale;
-        }
-        else {
-            old_speed = speed;
-            old_speed_scale = speed_scale;
-            speed = 0;
-            speed_scale = 0;
-        }
-    }
-}
-
-void clear_program ()
-{
-    if (clear_all_flag == TRUE) {
-        clear_all_flag = FALSE;
-        clear_all();
-    }
-}
-
-void change_program_speed ()
-{
-    if (change_speed_flag == TRUE) {
-        change_speed_flag = FALSE;
-        // increase the speed
-        speed *= 2;
-        speed_scale *= 1.2;
-
-        // check if the speed is too high and reset speed
-        if (speed > 6) {
-            speed = 1;
-            speed_scale = 0.6;
-        }
-    }
-}
-
-void mouse_clicked ()
-{
-    if (mouse_clicked_flag == TRUE) {
-        mouse_clicked_flag = FALSE;
-        add_plant_node(&plants, mouse_x, mouse_y);
-    }
-}
-
-/*
- * FUNCTION DEFINITIONS
- */
-int main(void)
-{
-    volatile int * pixel_ctrl_ptr = (int *)PIXEL_BUF_CTRL_BASE;
-    volatile int * SW_ptr = (int *)SW_BASE;
-
-    initialize_values();
-
-    set_A9_IRQ_stack();      // initialize the stack pointer for IRQ mode
-    config_GIC();            // configure the general interrupt controller
-    config_interval_timer(); // configure interval timer to generate interrupts
-    config_KEYs();           // configure pushbutton KEYs to generate interrupts
-    config_PS2();            // configure mouse input (PS2) to generate interrupts
-    
-    set_pixel_buffers();     // set up the pixel buffers
-
-    enable_A9_interrupts();  // enable interrupts
-
-    init_plant_list(&plants);
-    for (int i = 0; i < 3; i++) {
-        add_plant_node(&plants, rand() % RESOLUTION_X, rand() % RESOLUTION_Y);
-    }
-
-    while (1)
-    {
-        mouse_clicked();
-
-        pause_program();
-        clear_program();
-        change_program_speed();
-
-        Plant_Node *n = plants.head; // draw all the plants in the plant list
-        while (n != NULL) {
-            draw_stem (n->stem);
-            n = n->next;
-        }
-        
-        draw_mouse();
-
-        wait_for_vsync(); // swap front and back buffers on VGA vertical sync
-        pixel_buffer_start = *(pixel_ctrl_ptr + 1); // new back buffer
-    }
-}
-
-
-/* Initialize structures */
 void init_moving_point (Moving_Point *point, double x, double y, short int rev_x, short int rev_y) 
 {
     D_Point dir = vector_field(x, y, gTime);
@@ -880,6 +795,7 @@ void update_growing_stem_bez_point (Stem_List *list)
 void set_flower_size (Stem_List *list)
 {
     if (list->length < list->length_lim) { return; } // if still growing, no flower
+    if (speed == 0) { return; } // program paused, stop growing
 
     if (list->max_flower_size == INVALID_VAL)
         list->max_flower_size = average_surround(list->tail->point.x, list->tail->point.y, FLOWER_SIZE_RANGE);
@@ -1466,6 +1382,76 @@ void wait_for_vsync(){
 	status = *(pixel_ctrl_ptr + 3);		// read status register
 	while ((status & 0x01) != 0)		// checking if S bit is 0
 		status = *(pixel_ctrl_ptr + 3); // update read value of status register
+}
+
+
+/* Modify program from interrupt flags */
+void pause_program ()
+{
+    if (pause_program_flag == TRUE) {
+        pause_program_flag = FALSE;
+        if (speed == 0) {
+            speed = old_speed;
+            speed_scale = old_speed_scale;
+        }
+        else {
+            old_speed = speed;
+            old_speed_scale = speed_scale;
+            speed = 0;
+            speed_scale = 0;
+        }
+    }
+}
+
+void clear_program ()
+{
+    if (clear_all_flag == TRUE) {
+        clear_all_flag = FALSE;
+        clear_all();
+        init_start_values();
+    }
+}
+
+void change_program_speed ()
+{
+    if (change_speed_flag == TRUE) {
+        change_speed_flag = FALSE;
+        // change the speed
+        if (speed == 1) {
+            speed = 2;
+            speed_scale = 1;
+        }
+        else if (speed == 2) {
+            speed = 3;
+            speed_scale = 1.4;
+        }
+        else if (speed == 3) {
+            speed = 1;
+            speed_scale = 0.6;
+        }
+    }
+}
+
+void mouse_clicked ()
+{
+    if (mouse_clicked_flag == TRUE) {
+        mouse_clicked_flag = FALSE;
+        add_plant_node(&plants, mouse_x, mouse_y);
+    }
+}
+
+void draw_mouse ()
+{
+    if (old_mouse_x != 0 && old_mouse_y != 0)
+        plot_ellipse(old_mouse_x, old_mouse_y, 2, 2, BLACK, BLACK); // erase old mouse
+        
+    old_mouse_x = mouse_x;
+    old_mouse_y = mouse_y;
+    mouse_x = PS2_mouse_x;
+    mouse_y = PS2_mouse_y;
+
+    if (mouse_x != 0 && mouse_y != 0)
+        plot_ellipse(mouse_x, mouse_y, 2, 2, WHITE, BLACK); // draw new mouse
 }
 
 
