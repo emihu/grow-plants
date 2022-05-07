@@ -13,5 +13,5 @@ KEY3 changes the colours of the plants.
 
 Clicking on the screen with the mouse begins growing a new plant at the location of the mouse click.
 
-![plants-1](./assets/plants-1.gif)![plants-2](./assets/plants-2.gif)
-![plants-3](./assets/plants-3.gif)![plants-4](./assets/plants-4.gif)
+<img src="./assets/plants-1.gif" width=40% height=40%> <img src="./assets/plants-2.gif" width=40% height=40%>
+<img src="./assets/plants-3.gif" width=40% height=40%> <img src="./assets/plants-4.gif" width=40% height=40%>
