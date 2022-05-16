@@ -15,3 +15,11 @@ Clicking on the screen with the mouse begins growing a new plant at the location
 
 <img src="./assets/plants-1.gif" width=40% height=40%> <img src="./assets/plants-2.gif" width=40% height=40%>
 <img src="./assets/plants-3.gif" width=40% height=40%> <img src="./assets/plants-4.gif" width=40% height=40%>
+
+## Technical Features    
+  * Double-buffering and v-synch to display on a VGA display  
+  * Interrupt driven I/O to accept user input from PS/2 mouse and Push Buttons  
+  * Interrupt driven I/O for tracking time with an Interval Timer <br><br>  
+  * Linked lists of linked lists of structs to store plant information  
+  * Various line drawing algorithms (quadratic Bezier, straight line, ellipse) paired with a time varying vector field for random velocities to animate plant growth  
+  * Random colour selectors and plant branching algorithms for random plants  
