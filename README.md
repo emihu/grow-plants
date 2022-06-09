@@ -2,6 +2,7 @@
 
 A plant growing animation written in C and connected to a DE1-SoC computer system.
 May be simulated on the [CPUlator Computer System Simulator](https://cpulator.01xz.net/?sys=arm-de1soc).
+>Note that due to slower clock cycles and the fact that it is simulated, the program will be much slower in CPUlator than on the DE1-SoC board.
 
 ## Features
 The animation is displayed on the VGA and can be interacted with using the push keys on the DE1-SoC board and mouse clicks with the PS/2. 
